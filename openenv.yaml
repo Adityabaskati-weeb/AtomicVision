@@ -1,0 +1,5 @@
+name: atomicvision_env
+description: Autonomous non-destructive multi-defect mapping environment.
+version: 0.1.0
+entrypoint: atomicvision_env.server.app:app
+

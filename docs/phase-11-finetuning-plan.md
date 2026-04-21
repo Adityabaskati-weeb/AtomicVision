@@ -1,0 +1,142 @@
+# Phase 11 Fine-Tuning Plan
+
+## Purpose
+
+Phase 11 starts actual agent fine-tuning. The goal is to train an LLM policy that uses AtomicVision tools to beat the `prior_submit` baseline while keeping scan cost low.
+
+## Current Baseline To Beat
+
+From `docs/reward-comparison-report.md`, the strongest practical baseline is `prior_submit`:
+
+- Easy: `3.464`
+- Medium: `4.620`
+- Hard: `4.641`
+
+The oracle ceiling is `7.900`.
+
+## Training Approach
+
+Use Hugging Face TRL `GRPOTrainer` with `environment_factory`.
+
+Why:
+
+- TRL's OpenEnv integration supports stateful multi-turn environments.
+- Tool methods are exposed directly to the model.
+- Reward functions can read final reward from environment instances.
+
+## Implemented Scaffold
+
+- `training/train_grpo_atomicvision.py`
+- `training/requirements-grpo.txt`
+- `AtomicVisionToolEnv`
+- Tools exposed to the model:
+  - `request_scan`
+  - `zoom_band`
+  - `compare_reference`
+  - `ask_prior`
+  - `submit_defect_map`
+- `reward_func(environments, **kwargs)`
+- `--dry-run` mode for endpoint and wrapper validation.
+- LoRA switches for memory-friendly Colab/Kaggle runs.
+- Trackio reporting switch for visible reward curves.
+- Optional Hub push switches for saving trained adapters.
+- Strict tool guidance in the prompt and type hints:
+  - exact scan modes only
+  - exact resolution values only
+  - valid frequency range `0.0` to `20.0`
+  - default strategy of `ask_prior` before submission
+
+## Local Smoke Commands
+
+Install the training-only dependencies in a GPU notebook or training runtime:
+
+```bash
+git clone https://huggingface.co/spaces/prodigyhuh/atomicvision-openenv AtomicVision
+cd AtomicVision
+pip install -r training/requirements-grpo.txt
+```
+
+Important: do not `pip install torch` on Colab/Kaggle unless the runtime's
+preinstalled GPU Torch is broken. The training requirements intentionally leave
+Torch to the runtime so pip does not replace the CUDA-matched build.
+
+If Colab already imported an older Transformers version and still raises
+`environment_factory requires transformers version 5.2.0 or higher`, restart the
+runtime after installation and rerun from `cd /content/AtomicVision`.
+
+Validate the environment wrapper without downloading an LLM:
+
+```bash
+python training/train_grpo_atomicvision.py --dry-run --difficulty easy
+```
+
+Run the smallest GRPO smoke experiment:
+
+```bash
+python training/train_grpo_atomicvision.py --preset smoke --report-to trackio
+```
+
+This first run is intentionally low-concurrency. `2 × 1` gives a
+`generation_batch_size` of 2, which is divisible by `num_generations=2` and
+opens only two rollout environments. The hosted Space accepts 32 concurrent
+WebSocket sessions, so this stays far below the limit. After the smoke run
+succeeds, increase `--num-generations` first, then batch/accumulation.
+
+Save adapters to Hugging Face Hub only when a write token is available:
+
+```bash
+python training/train_grpo_atomicvision.py \
+  --model Qwen/Qwen3-0.6B \
+  --samples 128 \
+  --max-steps 100 \
+  --use-peft \
+  --push-to-hub \
+  --hub-model-id prodigyhuh/atomicvision-qwen3-0.6b-grpo-lora
+```
+
+Set `ATOMICVISION_ENV_URL` or pass `--env-url` if training against a duplicated Space or local Docker server.
+
+After the smoke run reaches `100% 5/5`, run:
+
+```bash
+python training/train_grpo_atomicvision.py --preset colab-20 --report-to trackio
+```
+
+For the larger-parameter path, move next to `Qwen/Qwen3-1.7B`, which is about
+2.03B parameters, using the commands in `docs/training-runtime-runbook.md`.
+
+## Required User Choices Before Long Training
+
+1. Runtime:
+   - Colab free GPU
+   - Kaggle GPU
+   - RunPod/Lambda paid GPU
+   - local CPU smoke only
+
+2. Model size:
+   - Starter: `Qwen/Qwen3-0.6B`
+   - Better: `Qwen/Qwen3-1.7B`
+   - Stronger but heavier: larger Qwen/Llama/Gemma-compatible model
+
+3. Training budget:
+   - Smoke: 5-20 GRPO steps
+   - Demo: 100-300 GRPO steps
+   - Stronger run: 500+ GRPO steps
+
+4. Persistence:
+   - no Hub push for first smoke test
+   - push LoRA adapters to Hub for the final judged run
+
+5. Monitoring:
+   - Trackio reward curve for the judging demo
+   - local CSV/JSON backup if Trackio is unavailable
+
+## Phase 11 Completion Gate
+
+Phase 11 is complete only when:
+
+- GRPO scaffold dry-run passes against the deployed Space.
+- Colab/Kaggle notebook includes the GRPO scaffold.
+- A short training run produces reward logs.
+- Reward curve compares against `prior_submit`.
+- The result is documented for judges.

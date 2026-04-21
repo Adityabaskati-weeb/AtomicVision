@@ -1,1 +1,54 @@
-# -AtomicVision-An-Autonomous-AI-Agent-for-Non-Destructive-Multi-Defect-Mapping
+---
+title: AtomicVision OpenEnv
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+short_description: OpenEnv lab for non-destructive atomic defect mapping.
+---
+
+# AtomicVision
+
+**AtomicVision: An Autonomous AI Agent for Non-Destructive Multi-Defect Mapping**
+
+AtomicVision is a hackathon-focused OpenEnv project for AI-assisted materials
+characterization. It frames atomic defect mapping as a partially observable
+scientific lab environment: an agent receives non-invasive vibrational spectra,
+chooses characterization actions, and submits a defect map while balancing
+accuracy against scan cost.
+
+The project is moving phase by phase. Each stage is implemented only after the
+previous gate has been validated.
+
+## Current Phase
+
+- Phase 0: Scope Lock
+- Phase 1: System Design
+- Phase 2: Environment Contract
+- Phase 3: Synthetic Materials World
+- Phase 4: Reward Scoring And Metrics
+- Phase 5: OpenEnv Wrapper
+- Phase 6: Baselines And Evaluation
+- Phase 7: DefectNet-Lite
+- Phase 8: Model Prior Training
+- Phase 9: Hugging Face Space Deployment
+- Phase 10: Reward Comparison And Colab Bridge
+- Phase 11: GRPO Fine-Tuning Scaffold
+- Status: Phase 11 in progress; smoke training pending runtime choice
+- Scope document: [docs/phase-0-scope-lock.md](docs/phase-0-scope-lock.md)
+- System design: [docs/phase-1-system-design.md](docs/phase-1-system-design.md)
+- Environment contract: [docs/phase-2-environment-contract.md](docs/phase-2-environment-contract.md)
+- Synthetic world: [docs/phase-3-synthetic-world.md](docs/phase-3-synthetic-world.md)
+- Rewards and metrics: [docs/phase-4-rewards-and-metrics.md](docs/phase-4-rewards-and-metrics.md)
+- OpenEnv wrapper: [docs/phase-5-openenv-wrapper.md](docs/phase-5-openenv-wrapper.md)
+- Baselines and evaluation: [docs/phase-6-baselines-and-evaluation.md](docs/phase-6-baselines-and-evaluation.md)
+- DefectNet-lite: [docs/phase-7-defectnet-lite.md](docs/phase-7-defectnet-lite.md)
+- Model prior training: [docs/phase-8-model-prior-training.md](docs/phase-8-model-prior-training.md)
+- Hugging Face deployment: [docs/phase-9-huggingface-deployment.md](docs/phase-9-huggingface-deployment.md)
+- Phase 10 notes: [docs/phase-10-reward-comparison-and-colab.md](docs/phase-10-reward-comparison-and-colab.md)
+- Phase 11 notes: [docs/phase-11-finetuning-plan.md](docs/phase-11-finetuning-plan.md)
+- Training runbook: [docs/training-runtime-runbook.md](docs/training-runtime-runbook.md)
+- Reward comparison: [docs/reward-comparison-report.md](docs/reward-comparison-report.md)
+- Colab bridge: [notebooks/AtomicVision_GRPO_Colab.ipynb](notebooks/AtomicVision_GRPO_Colab.ipynb)

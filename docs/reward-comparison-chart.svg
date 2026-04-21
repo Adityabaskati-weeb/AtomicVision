@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420">
+<rect width="960" height="420" fill="#ffffff"/>
+<text x="80" y="26" font-family="Arial" font-size="20" font-weight="700">AtomicVision Reward Comparison</text>
+<line x1="80" y1="340" x2="900" y2="340" stroke="#111827" stroke-width="1"/>
+<line x1="80" y1="40" x2="80" y2="340" stroke="#111827" stroke-width="1"/>
+<line x1="80" y1="210.50" x2="900" y2="210.50" stroke="#d1d5db" stroke-width="1"/>
+<rect x="84.00" y="210.50" width="46.67" height="12.95" fill="#9ca3af"/>
+<text x="216.67" y="374" font-family="Arial" font-size="12" text-anchor="middle">easy</text>
+<rect x="138.67" y="210.50" width="46.67" height="20.61" fill="#ef4444"/>
+<rect x="193.33" y="142.96" width="46.67" height="67.55" fill="#f59e0b"/>
+<rect x="248.00" y="135.75" width="46.67" height="74.75" fill="#2563eb"/>
+<rect x="302.67" y="40.00" width="46.67" height="170.50" fill="#16a34a"/>
+<rect x="357.33" y="210.50" width="46.67" height="28.06" fill="#9ca3af"/>
+<text x="490.00" y="374" font-family="Arial" font-size="12" text-anchor="middle">medium</text>
+<rect x="412.00" y="210.50" width="46.67" height="25.13" fill="#ef4444"/>
+<rect x="466.67" y="143.59" width="46.67" height="66.91" fill="#f59e0b"/>
+<rect x="521.33" y="110.78" width="46.67" height="99.72" fill="#2563eb"/>
+<rect x="576.00" y="40.00" width="46.67" height="170.50" fill="#16a34a"/>
+<rect x="630.67" y="210.50" width="46.67" height="43.17" fill="#9ca3af"/>
+<text x="763.33" y="374" font-family="Arial" font-size="12" text-anchor="middle">hard</text>
+<rect x="685.33" y="210.50" width="46.67" height="33.75" fill="#ef4444"/>
+<rect x="740.00" y="210.50" width="46.67" height="129.50" fill="#f59e0b"/>
+<rect x="794.67" y="110.33" width="46.67" height="100.17" fill="#2563eb"/>
+<rect x="849.33" y="40.00" width="46.67" height="170.50" fill="#16a34a"/>
+<rect x="80" y="394" width="12" height="12" fill="#9ca3af"/>
+<text x="98" y="405" font-family="Arial" font-size="12">cheap_submit</text>
+<rect x="225" y="394" width="12" height="12" fill="#ef4444"/>
+<text x="243" y="405" font-family="Arial" font-size="12">random</text>
+<rect x="370" y="394" width="12" height="12" fill="#f59e0b"/>
+<text x="388" y="405" font-family="Arial" font-size="12">scan_heavy</text>
+<rect x="515" y="394" width="12" height="12" fill="#2563eb"/>
+<text x="533" y="405" font-family="Arial" font-size="12">prior_submit</text>
+<rect x="660" y="394" width="12" height="12" fill="#16a34a"/>
+<text x="678" y="405" font-family="Arial" font-size="12">oracle</text>
+</svg>

@@ -1,0 +1,12 @@
+openenv-core==0.2.3
+# Do not install torch here. Colab/Kaggle provide a CUDA-matched torch build,
+# and replacing it can break the runtime's torchvision/torchaudio/CUDA stack.
+# TRL's OpenEnv `environment_factory` currently requires unreleased
+# Transformers 5.2+ APIs, so Colab/Kaggle must install main.
+transformers @ git+https://github.com/huggingface/transformers.git@main
+trl[peft]>=0.24
+accelerate>=1.11
+datasets>=3
+jmespath>=1.0
+peft>=0.13
+trackio>=0.2
