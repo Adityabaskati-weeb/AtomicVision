@@ -8,32 +8,50 @@ import pytest
 
 from training.train_grpo_atomicvision import (
     AtomicVisionToolEnv,
+    EXACT_PRIOR_COPY_REWARD,
     TRAINING_PRESETS,
+    VALID_TOOL_CALL_FORMAT_REWARD,
+    TOOL_SYSTEM_PROMPT,
     _apply_preset,
     _env_url,
     _format_observation,
     _is_retryable_connection_error,
+    _tool_call_format_reward,
     build_arg_parser,
     build_dataset,
     build_prompt_rows,
     reward_func,
 )
+from atomicvision_env.models import AtomicVisionAction
 
 
 def test_prompt_rows_match_grpo_dataset_shape() -> None:
     rows = build_prompt_rows(samples=3, difficulty="hard")
 
     assert len(rows["prompt"]) == 3
-    assert rows["prompt"][0][0]["role"] == "user"
-    assert "AtomicVision" in rows["prompt"][0][0]["content"]
-    assert "quick_pdos" in rows["prompt"][0][0]["content"]
-    assert "0.0 to 20.0" in rows["prompt"][0][0]["content"]
-    assert "ask_prior" in rows["prompt"][0][0]["content"]
-    assert "confidence 0.50 or higher" in rows["prompt"][0][0]["content"]
-    assert "standard_pdos costs 2.0" in rows["prompt"][0][0]["content"]
-    assert "submit_defect_map is terminal" in rows["prompt"][0][0]["content"]
+    assert rows["prompt"][0][0]["role"] == "system"
+    assert rows["prompt"][0][0]["content"] == TOOL_SYSTEM_PROMPT
+    assert rows["prompt"][0][1]["role"] == "user"
+    assert "AtomicVision" in rows["prompt"][0][1]["content"]
+    assert "quick_pdos" in rows["prompt"][0][1]["content"]
+    assert "0.0 to 20.0" in rows["prompt"][0][1]["content"]
+    assert "ask_prior" in rows["prompt"][0][1]["content"]
+    assert "confidence 0.50 or higher" in rows["prompt"][0][1]["content"]
+    assert "standard_pdos costs 2.0" in rows["prompt"][0][1]["content"]
+    assert "submit_defect_map is terminal" in rows["prompt"][0][1]["content"]
     assert rows["seed"] == [0, 1, 2]
     assert rows["difficulty"] == ["hard", "hard", "hard"]
+
+
+def test_prompt_rows_allow_system_prompt_ablation() -> None:
+    rows = build_prompt_rows(
+        samples=1,
+        difficulty="medium",
+        include_tool_system_prompt=False,
+    )
+
+    assert len(rows["prompt"][0]) == 1
+    assert rows["prompt"][0][0]["role"] == "user"
 
 
 def test_build_dataset_has_clear_optional_dependency_error() -> None:
@@ -50,8 +68,45 @@ def test_reward_func_reads_environment_rewards() -> None:
     class DummyEnv:
         def __init__(self, reward: float):
             self.reward = reward
+            self.last_prior_prediction = None
+            self.last_submit_action = None
 
     assert reward_func([DummyEnv(1.25), DummyEnv(-0.5)]) == [1.25, -0.5]
+
+
+def test_reward_func_adds_format_and_exact_copy_shaping() -> None:
+    env = AtomicVisionToolEnv()
+    env.reward = 2.0
+    env.last_prior_prediction = {
+        "predicted_defects": ["Zn", "P"],
+        "predicted_concentrations": [0.19021, 0.04792],
+        "confidence": 0.51,
+    }
+    env.last_submit_action = AtomicVisionAction(
+        action_type="submit_defect_map",
+        predicted_defects=["Zn", "P"],
+        predicted_concentrations=[0.19021, 0.04792],
+        confidence=0.51,
+    )
+
+    rewards = reward_func(
+        [env],
+        completions=[
+            (
+                '<tool_call>{"name":"submit_defect_map","arguments":'
+                '{"predicted_defects":["Zn","P"],'
+                '"predicted_concentrations":[0.19021,0.04792],'
+                '"confidence":0.51}}</tool_call>'
+            )
+        ],
+    )
+
+    assert rewards == [2.0 + VALID_TOOL_CALL_FORMAT_REWARD + EXACT_PRIOR_COPY_REWARD]
+
+
+def test_tool_call_format_reward_penalizes_missing_or_invalid_tool_call() -> None:
+    assert _tool_call_format_reward("message=Initial scan") < 0.0
+    assert _tool_call_format_reward("<tool_call>{bad json}</tool_call>") < 0.0
 
 
 def test_training_presets_keep_grpo_generation_batch_valid() -> None:
@@ -101,6 +156,7 @@ def test_cli_accepts_adapter_continuation_args() -> None:
     assert args.model == "Qwen/Qwen3-1.7B"
     assert args.adapter_model_id == "prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-lora"
     assert args.max_steps == 10
+    assert args.no_tool_system_prompt is False
 
 
 def test_tool_env_is_lazy_and_requires_reset_before_tools() -> None:

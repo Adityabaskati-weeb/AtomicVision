@@ -8,7 +8,9 @@ generic `step(action)` method.
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -25,10 +27,20 @@ from atomicvision_env.models import AtomicVisionAction
 DEFAULT_ENV_URL = "https://prodigyhuh-atomicvision-openenv.hf.space"
 DEFAULT_MODEL = "Qwen/Qwen3-0.6B"
 POST_TERMINAL_TOOL_PENALTY = 2.0
+VALID_TOOL_CALL_FORMAT_REWARD = 0.15
+INVALID_TOOL_CALL_FORMAT_PENALTY = 0.75
+EXACT_PRIOR_COPY_REWARD = 0.25
+CONFIDENT_PRIOR_MIS_COPY_PENALTY = 0.6
 ScanMode = Literal["quick_pdos", "standard_pdos", "high_res_pdos", "raman_proxy"]
 Resolution = Literal["low", "medium", "high"]
 VALID_SCAN_MODES = ("quick_pdos", "standard_pdos", "high_res_pdos", "raman_proxy")
 VALID_RESOLUTIONS = ("low", "medium", "high")
+TOOL_SYSTEM_PROMPT = (
+    "You are using AtomicVision tools. Return exactly one tool call wrapped in "
+    "<tool_call>...</tool_call>. Use ask_prior first. After the prior appears, "
+    "copy its predicted_defects, predicted_concentrations, and confidence "
+    "exactly into submit_defect_map. Do not invent species or concentrations."
+)
 DEFAULT_PROMPT = (
     "You are AtomicVision, an autonomous materials characterization agent. "
     "Your task is to infer hidden atomic defects from non-invasive spectral evidence. "
@@ -117,6 +129,8 @@ class AtomicVisionToolEnv:
         self.reward = 0.0
         self.done = False
         self.last_message = ""
+        self.last_prior_prediction: dict[str, Any] | None = None
+        self.last_submit_action: AtomicVisionAction | None = None
         self._connected = False
         self.post_terminal_tool_calls = 0
 
@@ -128,6 +142,8 @@ class AtomicVisionToolEnv:
         self.reward = float(result.reward or 0.0)
         self.done = result.done
         self.last_message = observation.message
+        self.last_prior_prediction = None
+        self.last_submit_action = None
         self.post_terminal_tool_calls = 0
         return _format_observation(observation.model_dump())
 
@@ -258,6 +274,11 @@ class AtomicVisionToolEnv:
         self.reward = float(result.reward or 0.0)
         self.done = result.done
         self.last_message = observation.message
+        prior = observation.prior_prediction
+        if prior is not None:
+            self.last_prior_prediction = prior.model_dump()
+        if action.action_type == "submit_defect_map":
+            self.last_submit_action = action
         return _format_observation(observation.model_dump())
 
     def _new_client(self):
@@ -312,22 +333,42 @@ class AtomicVisionToolEnv:
 
 
 def reward_func(environments, **kwargs) -> list[float]:
-    """Return final AtomicVision environment rewards for GRPO."""
+    """Return AtomicVision rewards plus small tool-format/copy shaping."""
 
-    return [env.reward for env in environments]
+    completion_texts = _extract_completion_texts(kwargs, expected_count=len(environments))
+    rewards: list[float] = []
+    for index, env in enumerate(environments):
+        completion_text = completion_texts[index] if index < len(completion_texts) else ""
+        rewards.append(
+            float(env.reward)
+            + _tool_call_format_reward(completion_text)
+            + _prior_copy_reward(env)
+        )
+    return rewards
 
 
-def build_prompt_rows(samples: int, difficulty: str = "medium") -> dict[str, Any]:
+def build_prompt_rows(
+    samples: int,
+    difficulty: str = "medium",
+    include_tool_system_prompt: bool = True,
+) -> dict[str, Any]:
     """Build plain Python prompt rows without optional training dependencies."""
 
+    prompt = [{"role": "user", "content": DEFAULT_PROMPT}]
+    if include_tool_system_prompt:
+        prompt = [{"role": "system", "content": TOOL_SYSTEM_PROMPT}, *prompt]
     return {
-        "prompt": [[{"role": "user", "content": DEFAULT_PROMPT}] for _ in range(samples)],
+        "prompt": [prompt for _ in range(samples)],
         "seed": list(range(samples)),
         "difficulty": [difficulty] * samples,
     }
 
 
-def build_dataset(samples: int, difficulty: str = "medium"):
+def build_dataset(
+    samples: int,
+    difficulty: str = "medium",
+    include_tool_system_prompt: bool = True,
+):
     """Build a simple prompt dataset for AtomicVision episodes."""
 
     try:
@@ -338,7 +379,13 @@ def build_dataset(samples: int, difficulty: str = "medium"):
             "training extras with `pip install -r training/requirements-grpo.txt`."
         ) from exc
 
-    return Dataset.from_dict(build_prompt_rows(samples=samples, difficulty=difficulty))
+    return Dataset.from_dict(
+        build_prompt_rows(
+            samples=samples,
+            difficulty=difficulty,
+            include_tool_system_prompt=include_tool_system_prompt,
+        )
+    )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -372,6 +419,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lora-alpha", type=int, default=32)
     parser.add_argument("--push-to-hub", action="store_true")
     parser.add_argument("--hub-model-id", default=None)
+    parser.add_argument(
+        "--no-tool-system-prompt",
+        action="store_true",
+        help="Disable the system tool-contract prompt. Only use for ablations.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
@@ -387,7 +439,11 @@ def main() -> None:
         os.environ["ATOMICVISION_ENV_URL"] = args.env_url
 
     if args.dry_run:
-        rows = build_prompt_rows(samples=2, difficulty=args.difficulty)
+        rows = build_prompt_rows(
+            samples=2,
+            difficulty=args.difficulty,
+            include_tool_system_prompt=not args.no_tool_system_prompt,
+        )
         env = AtomicVisionToolEnv()
         try:
             initial = env.reset(seed=0, difficulty=args.difficulty)
@@ -430,7 +486,11 @@ def main() -> None:
             target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
         )
 
-    dataset = build_dataset(samples=args.samples, difficulty=args.difficulty)
+    dataset = build_dataset(
+        samples=args.samples,
+        difficulty=args.difficulty,
+        include_tool_system_prompt=not args.no_tool_system_prompt,
+    )
     trainer = GRPOTrainer(
         model=model,
         train_dataset=dataset,
@@ -482,6 +542,74 @@ def _is_retryable_connection_error(exc: Exception) -> bool:
         or "closed" in message.lower()
         or "CAPACITY_REACHED" in message
     )
+
+
+def _extract_completion_texts(kwargs: dict[str, Any], expected_count: int) -> list[str]:
+    completions = kwargs.get("completions")
+    if completions is None:
+        return [""] * expected_count
+    texts = [_completion_to_text(completion) for completion in completions]
+    if len(texts) != expected_count:
+        return [""] * expected_count
+    return texts
+
+
+def _completion_to_text(completion: Any) -> str:
+    if isinstance(completion, str):
+        return completion
+    if isinstance(completion, dict):
+        return str(completion.get("content") or completion.get("text") or "")
+    if isinstance(completion, list):
+        return "\n".join(_completion_to_text(item) for item in completion)
+    return str(completion or "")
+
+
+def _tool_call_format_reward(text: str) -> float:
+    if not text:
+        return 0.0
+    matches = re.findall(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", text, re.S)
+    if len(matches) != 1:
+        return -INVALID_TOOL_CALL_FORMAT_PENALTY
+    try:
+        call = json.loads(matches[0])
+    except json.JSONDecodeError:
+        return -INVALID_TOOL_CALL_FORMAT_PENALTY
+    name = call.get("name")
+    arguments = call.get("arguments")
+    if not isinstance(arguments, dict):
+        return -INVALID_TOOL_CALL_FORMAT_PENALTY
+    if name not in {
+        "ask_prior",
+        "compare_reference",
+        "request_scan",
+        "zoom_band",
+        "submit_defect_map",
+    }:
+        return -INVALID_TOOL_CALL_FORMAT_PENALTY
+    return VALID_TOOL_CALL_FORMAT_REWARD
+
+
+def _prior_copy_reward(env: AtomicVisionToolEnv) -> float:
+    prior = env.last_prior_prediction
+    submit = env.last_submit_action
+    if prior is None or submit is None:
+        return 0.0
+    confidence = float(prior.get("confidence") or 0.0)
+    is_exact = (
+        list(prior.get("predicted_defects") or []) == list(submit.predicted_defects)
+        and _rounded_floats(prior.get("predicted_concentrations") or [])
+        == _rounded_floats(submit.predicted_concentrations)
+        and round(confidence, 5) == round(float(submit.confidence or 0.0), 5)
+    )
+    if is_exact:
+        return EXACT_PRIOR_COPY_REWARD
+    if confidence >= 0.5:
+        return -CONFIDENT_PRIOR_MIS_COPY_PENALTY
+    return 0.0
+
+
+def _rounded_floats(values: list[float]) -> list[float]:
+    return [round(float(value), 5) for value in values]
 
 
 def _format_observation(observation: dict) -> str:

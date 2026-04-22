@@ -53,7 +53,7 @@ Recommended 1.7B run:
 python training/train_grpo_atomicvision.py --preset qwen-1p7b-50 --report-to trackio
 ```
 
-Recommended SFT-copy continuation run:
+Recommended format-aware SFT-copy continuation run:
 
 ```bash
 python training/train_grpo_atomicvision.py \
@@ -62,19 +62,21 @@ python training/train_grpo_atomicvision.py \
   --samples 128 \
   --max-steps 50 \
   --num-generations 2 \
-  --per-device-train-batch-size 2 \
-  --gradient-accumulation-steps 1 \
+  --per-device-train-batch-size 1 \
+  --gradient-accumulation-steps 2 \
   --max-completion-length 768 \
-  --learning-rate 5e-6 \
+  --learning-rate 3e-6 \
   --report-to trackio \
-  --run-name atomicvision-sft-copy-grpo-50step \
+  --run-name atomicvision-sft-copy-grpo-format-50step \
   --push-to-hub \
-  --hub-model-id prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-grpo-lora
+  --hub-model-id prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-grpo-format-lora
 ```
 
 Use a smaller learning rate than fresh LoRA GRPO because the SFT-copy adapter
 already matches the prior-submit behavior. The continuation goal is to improve
-weak-prior decisions without damaging exact tool-copy reliability.
+weak-prior decisions without damaging exact tool-copy reliability. The script
+now includes the tool-system prompt by default and shapes reward for valid tool
+JSON plus exact confident-prior copying.
 
 Recommended HF-credit 4B run, only after 1.7B works:
 
@@ -119,7 +121,7 @@ Kaggle often has stricter internet/session behavior. If a Space connection
 fails during training, rerun with the safe smoke configuration and keep
 `num-generations=2`.
 
-Kaggle SFT-copy continuation smoke:
+Kaggle format-aware SFT-copy continuation smoke:
 
 ```bash
 python training/train_grpo_atomicvision.py \
@@ -128,14 +130,14 @@ python training/train_grpo_atomicvision.py \
   --samples 64 \
   --max-steps 20 \
   --num-generations 2 \
-  --per-device-train-batch-size 2 \
-  --gradient-accumulation-steps 1 \
+  --per-device-train-batch-size 1 \
+  --gradient-accumulation-steps 2 \
   --max-completion-length 768 \
-  --learning-rate 5e-6 \
+  --learning-rate 3e-6 \
   --report-to none \
-  --run-name atomicvision-kaggle-sft-copy-grpo-20step \
+  --run-name atomicvision-kaggle-sft-copy-grpo-format-20step \
   --push-to-hub \
-  --hub-model-id prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-grpo-smoke-lora
+  --hub-model-id prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-grpo-format-smoke-lora
 ```
 
 ## Hugging Face Training
@@ -171,7 +173,7 @@ hf jobs run \
   --timeout 3h \
   --secrets HF_TOKEN \
   pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel \
-  bash -lc "git clone https://huggingface.co/spaces/prodigyhuh/atomicvision-openenv AtomicVision && cd AtomicVision && pip install -r training/requirements-grpo.txt && python training/train_grpo_atomicvision.py --model Qwen/Qwen3-1.7B --adapter-model-id prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-lora --samples 256 --max-steps 200 --num-generations 4 --per-device-train-batch-size 4 --gradient-accumulation-steps 1 --max-completion-length 768 --learning-rate 5e-6 --report-to trackio --run-name atomicvision-hf-sft-copy-grpo-200step --push-to-hub --hub-model-id prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-grpo-lora"
+  bash -lc "git clone https://huggingface.co/spaces/prodigyhuh/atomicvision-openenv AtomicVision && cd AtomicVision && pip install -r training/requirements-grpo.txt && python training/train_grpo_atomicvision.py --model Qwen/Qwen3-1.7B --adapter-model-id prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-lora --samples 256 --max-steps 200 --num-generations 4 --per-device-train-batch-size 4 --gradient-accumulation-steps 1 --max-completion-length 768 --learning-rate 3e-6 --report-to trackio --run-name atomicvision-hf-sft-copy-grpo-format-200step --push-to-hub --hub-model-id prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-grpo-format-lora"
 ```
 
 For 4B, use `a10g-large` or better and a longer timeout.

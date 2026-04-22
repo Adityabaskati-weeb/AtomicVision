@@ -64,10 +64,14 @@ Why GRPO after SFT:
 - Trackio reporting switch for visible reward curves.
 - Optional Hub push switches for saving trained adapters.
 - Strict tool guidance in the prompt and type hints:
+  - system tool-contract prompt by default
   - exact scan modes only
   - exact resolution values only
   - valid frequency range `0.0` to `20.0`
   - default strategy of `ask_prior` before submission
+- Small reward shaping terms:
+  - valid single `<tool_call>...</tool_call>` JSON format
+  - exact confident-prior copying into `submit_defect_map`
 
 ## Local Smoke Commands
 
@@ -184,8 +188,16 @@ This now slightly exceeds the 32-episode `prior_submit` baseline
 
 ## GRPO Continuation From SFT-Copy Adapter
 
-The next training run should initialize from the SFT-copy adapter rather than a
-fresh LoRA:
+The first Kaggle continuation smoke proved that the training path runs and
+pushes a LoRA, but the resulting adapter was not promoted:
+
+- Model: `prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-grpo-smoke-lora`
+- With tool-system prompt: reward `4.366`, F1 `0.773`, failures `0%`
+- Without tool-system prompt: malformed rollout behavior, failures `100%`
+- Decision: keep `prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-lora` as best
+
+The next training run should initialize from the SFT-copy adapter and use the
+format-aware scaffold:
 
 ```bash
 python training/train_grpo_atomicvision.py \
@@ -194,10 +206,11 @@ python training/train_grpo_atomicvision.py \
   --samples 128 \
   --max-steps 50 \
   --num-generations 2 \
-  --per-device-train-batch-size 2 \
-  --gradient-accumulation-steps 1 \
+  --per-device-train-batch-size 1 \
+  --gradient-accumulation-steps 2 \
   --max-completion-length 768 \
-  --learning-rate 5e-6
+  --learning-rate 3e-6 \
+  --hub-model-id prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-grpo-format-lora
 ```
 
 The continuation target is to preserve exact tool-copy reliability while

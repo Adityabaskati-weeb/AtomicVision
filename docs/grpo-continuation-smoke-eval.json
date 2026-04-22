@@ -1,0 +1,30 @@
+{
+  "adapter_id": "prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-grpo-smoke-lora",
+  "baseline_to_keep": "prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-lora",
+  "difficulty": "medium",
+  "decision": "do_not_promote",
+  "rows": [
+    {
+      "done_rate": 1.0,
+      "episodes": 8,
+      "mean_f1": 0.0,
+      "mean_mae": 0.103476375,
+      "mean_reward": -1.35,
+      "mean_scan_cost": 0.0,
+      "mean_steps": 1.0,
+      "prompt_mode": "no_tool_system",
+      "tool_failure_rate": 1.0
+    },
+    {
+      "done_rate": 1.0,
+      "episodes": 32,
+      "mean_f1": 0.773214375,
+      "mean_mae": 0.0317914375,
+      "mean_reward": 4.3664260625,
+      "mean_scan_cost": 1.5,
+      "mean_steps": 2.0,
+      "prompt_mode": "with_tool_system",
+      "tool_failure_rate": 0.0
+    }
+  ]
+}

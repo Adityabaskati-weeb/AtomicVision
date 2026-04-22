@@ -37,7 +37,8 @@ previous gate has been validated.
 - Phase 10: Reward Comparison And Colab Bridge
 - Phase 11: GRPO Fine-Tuning Scaffold
 - Phase 12: SFT Copy LoRA Rollout
-- Status: Phase 12 complete; next step is GRPO continuation from the SFT-copy adapter
+- Phase 13: Format-Aware GRPO Continuation
+- Status: Phase 13 scaffold ready; SFT-copy adapter remains the best checkpoint
 - Scope document: [docs/phase-0-scope-lock.md](docs/phase-0-scope-lock.md)
 - System design: [docs/phase-1-system-design.md](docs/phase-1-system-design.md)
 - Environment contract: [docs/phase-2-environment-contract.md](docs/phase-2-environment-contract.md)
@@ -53,6 +54,7 @@ previous gate has been validated.
 - Training runbook: [docs/training-runtime-runbook.md](docs/training-runtime-runbook.md)
 - Reward comparison: [docs/reward-comparison-report.md](docs/reward-comparison-report.md)
 - SFT-copy rollout result: [docs/sft-copy-lora-results.md](docs/sft-copy-lora-results.md)
+- GRPO continuation smoke result: [docs/grpo-continuation-smoke-results.md](docs/grpo-continuation-smoke-results.md)
 - Colab bridge: [notebooks/AtomicVision_GRPO_Colab.ipynb](notebooks/AtomicVision_GRPO_Colab.ipynb)
 
 ## Latest Result
@@ -71,3 +73,9 @@ Model: [`prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-lora`](https://huggingface.
 
 The SFT-copy adapter slightly outperforms the deterministic prior-submit
 baseline while preserving 0% malformed tool calls and 100% episode completion.
+
+The first 20-step GRPO continuation from this adapter completed successfully on
+Kaggle, but it was not promoted: with the required tool-system prompt it matched
+the prior-submit baseline (`4.366` reward, `0.773` F1) and remained below the
+SFT-copy adapter. The GRPO scaffold now includes the tool-system prompt by
+default and adds format/copy reward shaping for the next run.
