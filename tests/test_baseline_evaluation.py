@@ -63,3 +63,27 @@ def test_run_eval_cli_outputs_json() -> None:
     assert payload["policy_name"] == "prior_submit"
     assert payload["episodes"] == 2
 
+
+def test_training_eval_wrapper_outputs_json() -> None:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "training/evaluate_atomicvision_agent.py",
+            "--policies",
+            "prior_submit",
+            "--difficulty",
+            "easy",
+            "--episodes",
+            "2",
+            "--no-write",
+            "--json-only",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(completed.stdout)
+    assert payload["difficulty"] == "easy"
+    assert payload["episodes"] == 2
+    assert payload["rows"][0]["policy_name"] == "prior_submit"
