@@ -231,3 +231,36 @@ python training/train_grpo_atomicvision.py \
 
 The continuation target is to preserve exact tool-copy reliability while
 learning when a borderline prior deserves one extra scan.
+
+## Curated Reference SFT Bridge
+
+The variance-aware smoke can produce train-time learning signal, but the latest
+medium eval still collapsed to the prior-submit behavior:
+
+- Adapter: `/kaggle/working/atomicvision-mid-explore-smoke-lora`
+- Reward: `3.7664260625` in eval-sum style
+- F1: `0.773214375`
+- MAE: `0.0317914375`
+- Mean scan cost: `1.5`
+- Tool failures: `0.0`
+
+The exact reason is now visible in the code path: old SFT taught only
+prior-copy, and the model-facing observation formatter did not expose the
+actual spectrum or reference deltas. Extra scans were valid but mostly
+unusable. The formatter now emits compact spectral summaries and the SFT
+generator can create curated `submit_after_reference` examples.
+
+Generate the bridge dataset:
+
+```bash
+python training/generate_atomicvision_sft_data.py \
+  --episodes-per-difficulty 256 \
+  --difficulties medium \
+  --sample-types submit_prior submit_after_reference \
+  --min-scan-improvement 0.25 \
+  --output-jsonl outputs/sft/atomicvision_mixed_copy_reference_sft.jsonl
+```
+
+Train a fresh SFT LoRA on that mixed JSONL before attempting more GRPO. The
+gate stays strict: direct eval must beat the current SFT-copy adapter
+(`4.458` terminal reward, `0.790` F1, `0.0321` MAE) before promotion.

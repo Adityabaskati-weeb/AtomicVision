@@ -292,6 +292,7 @@ def test_observation_formatter_includes_training_signal() -> None:
             "done": True,
             "reward_breakdown": {"f1": 0.8},
             "frequency_axis": [0.0, 5.0, 20.0],
+            "current_spectrum": [0.1, 0.9, 0.2],
             "scan_history": [
                 {"action_type": "initial_scan", "cost": 0.0},
                 {"action_type": "ask_prior", "cost": 1.5},
@@ -305,6 +306,8 @@ def test_observation_formatter_includes_training_signal() -> None:
     assert "scan_cost_so_far=1.500" in text
     assert "recommended_next_action=submit_defect_map_with_prior" in text
     assert "recommended_first_action=ask_prior" in text
+    assert "spectral_summary=" in text
+    assert "current_peak_freqs" in text
     assert "reward=3.0 done=True" in text
     assert "terminal_instruction=stop_tool_calls_return_final_answer" in text
     assert "f1" in text
@@ -325,9 +328,39 @@ def test_observation_formatter_marks_borderline_prior_for_variance() -> None:
             "done": False,
             "reward_breakdown": {"scan_cost_penalty": -0.6},
             "frequency_axis": [0.0, 20.0],
+            "current_spectrum": [0.1, 0.2],
             "scan_history": [{"action_type": "ask_prior", "cost": 1.5}],
         }
     )
 
     assert "recommended_next_action=copy_prior_or_one_cheap_scan_then_submit" in text
     assert "one_cheap_scan_only_when_borderline" in text
+
+
+def test_observation_formatter_exposes_reference_delta_signal() -> None:
+    text = _format_observation(
+        {
+            "message": "reference visible",
+            "material_id": "synthetic-medium-1",
+            "difficulty": "medium",
+            "budget_remaining": 7.0,
+            "step_count": 2,
+            "max_steps": 5,
+            "candidate_defects": ["B", "N"],
+            "prior_prediction": {"predicted_defects": ["B"], "confidence": 0.55},
+            "reward": -0.2,
+            "done": False,
+            "reward_breakdown": {"scan_cost_penalty": -0.2},
+            "frequency_axis": [0.0, 5.0, 10.0, 15.0, 20.0],
+            "current_spectrum": [0.1, 0.5, 0.2, 0.9, 0.3],
+            "pristine_reference": [0.2, 0.4, 0.2, 0.1, 0.3],
+            "scan_history": [
+                {"action_type": "ask_prior", "cost": 1.5},
+                {"action_type": "compare_reference", "cost": 0.5},
+            ],
+        }
+    )
+
+    assert "spectrum_delta_top_abs" in text
+    assert "candidate_signature_bands" in text
+    assert "candidate_signature_scores" in text

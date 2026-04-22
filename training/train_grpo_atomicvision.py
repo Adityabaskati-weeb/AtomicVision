@@ -49,6 +49,8 @@ DEFAULT_PROMPT = (
     "Your task is to infer hidden atomic defects from non-invasive spectral evidence. "
     "Maximize reward by submitting accurate defect identities and concentrations while "
     "avoiding unnecessary scan cost. "
+    "Observations include compact spectral summaries: current peaks, defect-reference "
+    "delta peaks when a reference is visible, and candidate signature bands/scores. "
     "Tool protocol: valid scan_mode values are exactly quick_pdos, standard_pdos, "
     "high_res_pdos, and raman_proxy. Valid resolution values are exactly low, medium, "
     "and high. The frequency axis is synthetic PDoS units from 0.0 to 20.0; valid "
@@ -675,6 +677,7 @@ def _format_observation(observation: dict) -> str:
     scan_history = observation.get("scan_history") or []
     scan_cost_so_far = _scan_cost_from_history(scan_history)
     recommended_next_action = _recommended_next_action(prior)
+    spectral_summary = _spectral_summary(observation)
     if axis:
         frequency_range = f"{min(axis):.3f}-{max(axis):.3f}"
     else:
@@ -700,6 +703,7 @@ def _format_observation(observation: dict) -> str:
         f"recommended_first_action=ask_prior\n"
         f"recommended_next_action={recommended_next_action}\n"
         f"candidate_defects={observation.get('candidate_defects')}\n"
+        f"spectral_summary={spectral_summary}\n"
         f"prior={prior}\n"
         f"reward={observation.get('reward')} done={observation.get('done')}\n"
         f"reward_breakdown={reward_breakdown}"
@@ -727,6 +731,114 @@ def _scan_cost_from_history(scan_history: list) -> float:
         else:
             total += float(getattr(record, "cost", 0.0) or 0.0)
     return total
+
+
+def _spectral_summary(observation: dict) -> str:
+    axis = observation.get("frequency_axis") or []
+    current = observation.get("current_spectrum") or []
+    reference = observation.get("pristine_reference") or []
+    candidates = observation.get("candidate_defects") or []
+    if not axis or not current:
+        return "unavailable"
+
+    summary: dict[str, Any] = {
+        "current_peak_freqs": _top_frequency_values(axis, current, top_k=4),
+    }
+    if candidates:
+        summary["candidate_signature_bands"] = [
+            _candidate_signature_bands(species) for species in candidates
+        ]
+    if reference and len(reference) == len(current) == len(axis):
+        deltas = [
+            round(float(current_value) - float(reference_value), 6)
+            for current_value, reference_value in zip(current, reference, strict=True)
+        ]
+        summary["spectrum_delta_top_abs"] = _top_frequency_values(
+            axis,
+            deltas,
+            top_k=6,
+            absolute=True,
+        )
+        if candidates:
+            summary["candidate_signature_scores"] = _candidate_signature_scores(
+                axis,
+                deltas,
+                candidates,
+            )
+    return json.dumps(summary, separators=(",", ":"), ensure_ascii=True)
+
+
+def _top_frequency_values(
+    axis: list,
+    values: list,
+    top_k: int,
+    absolute: bool = False,
+) -> list[dict[str, float]]:
+    ranked = sorted(
+        zip(axis, values, strict=True),
+        key=lambda pair: abs(float(pair[1])) if absolute else float(pair[1]),
+        reverse=True,
+    )[:top_k]
+    return [
+        {"freq": round(float(freq), 3), "value": round(float(value), 4)}
+        for freq, value in ranked
+    ]
+
+
+def _candidate_signature_bands(species: str) -> dict[str, float | str]:
+    signature = _species_signature(species)
+    return {
+        "species": species,
+        "add": round(signature["center"], 3),
+        "soften": round(signature["soften_center"], 3),
+        "broad": round(signature["broad_center"], 3),
+    }
+
+
+def _candidate_signature_scores(
+    axis: list,
+    deltas: list[float],
+    candidates: list[str],
+) -> list[dict[str, float | str]]:
+    scored = []
+    for species in candidates:
+        signature = _species_signature(species)
+        add_delta = _nearest_spectral_value(axis, deltas, signature["center"])
+        soften_delta = _nearest_spectral_value(axis, deltas, signature["soften_center"])
+        broad_delta = _nearest_spectral_value(axis, deltas, signature["broad_center"])
+        score = max(0.0, add_delta) + max(0.0, broad_delta) + max(0.0, -soften_delta)
+        scored.append(
+            {
+                "species": species,
+                "score": round(score, 4),
+                "add_delta": round(add_delta, 4),
+                "soften_delta": round(soften_delta, 4),
+                "broad_delta": round(broad_delta, 4),
+            }
+        )
+    return sorted(scored, key=lambda item: float(item["score"]), reverse=True)
+
+
+def _nearest_spectral_value(axis: list, values: list[float], target: float) -> float:
+    if not axis or not values:
+        return 0.0
+    nearest_index = min(
+        range(len(axis)),
+        key=lambda index: abs(float(axis[index]) - target),
+    )
+    return float(values[nearest_index])
+
+
+def _species_signature(species: str) -> dict[str, float]:
+    code = sum((index + 1) * ord(char) for index, char in enumerate(species))
+    center = 1.2 + (code % 170) / 10.0
+    soften_center = 1.0 + ((code * 7) % 180) / 10.0
+    broad_center = 2.0 + ((code * 11) % 150) / 10.0
+    return {
+        "center": min(center, 19.2),
+        "soften_center": min(soften_center, 19.0),
+        "broad_center": min(broad_center, 18.5),
+    }
 
 
 if __name__ == "__main__":

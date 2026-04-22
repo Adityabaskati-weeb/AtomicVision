@@ -58,6 +58,63 @@ def test_sft_generator_cli_writes_jsonl() -> None:
     assert all(row["messages"] for row in rows)
 
 
+def test_scan_improvement_examples_use_reference_before_revised_submit() -> None:
+    examples = build_sft_examples(
+        episodes_per_difficulty=2,
+        difficulties=("medium",),
+        sample_types=("submit_after_reference",),
+        max_scan_candidates_per_difficulty=16,
+    )
+
+    assert len(examples) == 2
+    for example in examples:
+        assistant_calls = [
+            _parse_tool_call(message["content"])
+            for message in example["messages"]
+            if message["role"] == "assistant"
+        ]
+
+        assert [call["name"] for call in assistant_calls] == [
+            "ask_prior",
+            "compare_reference",
+            "submit_defect_map",
+        ]
+        assert example["sample_type"] == "submit_after_reference"
+        assert example["reward_improvement"] >= 0.25
+        assert example["expected_scan_cost"] == 2.0
+        assert "spectrum_delta_top_abs" in example["messages"][-2]["content"]
+        assert example["oracle_defect_map"] == assistant_calls[-1]["arguments"]
+
+
+def test_sft_generator_cli_writes_scan_improvement_jsonl() -> None:
+    output_path = Path(f"outputs/test-sft-generator/atomicvision_scan_sft_{os.getpid()}.jsonl")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "training/generate_atomicvision_sft_data.py",
+            "--episodes-per-difficulty",
+            "2",
+            "--difficulties",
+            "medium",
+            "--sample-types",
+            "submit_after_reference",
+            "--output-jsonl",
+            str(output_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    rows = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+
+    assert "Wrote 2 examples" in completed.stdout
+    assert len(rows) == 2
+    assert {row["sample_type"] for row in rows} == {"submit_after_reference"}
+
+
 def _parse_tool_call(text: str) -> dict:
     assert text.startswith("<tool_call>")
     assert text.endswith("</tool_call>")

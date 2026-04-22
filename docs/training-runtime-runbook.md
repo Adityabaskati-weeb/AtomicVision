@@ -174,6 +174,51 @@ python training/train_grpo_atomicvision.py \
   --hub-model-id prodigyhuh/atomicvision-qwen3-1p7b-sft-copy-grpo-variance-smoke-lora
 ```
 
+Your latest mid-exploration smoke produced valid tools and nonzero train-time
+variance, but the direct eval still collapsed to the prior-submit baseline:
+reward `3.7664260625` in eval-sum style, F1 `0.773214375`, MAE
+`0.0317914375`, scan cost `1.5`, and tool failures `0.0`. Do not promote that
+adapter. The next move is a supervised bridge that teaches useful one-scan
+behavior before another GRPO continuation.
+
+## Curated SFT Bridge
+
+The earlier SFT-copy dataset only taught `ask_prior -> submit_defect_map`, so
+the model learned to copy the prior even when exploration could help. The tool
+wrapper now exposes compact spectral summaries:
+
+- `current_peak_freqs`
+- `candidate_signature_bands`
+- `spectrum_delta_top_abs` after `compare_reference`
+- `candidate_signature_scores` after `compare_reference`
+
+Generate reference-improvement SFT rows on Kaggle:
+
+```bash
+python training/generate_atomicvision_sft_data.py \
+  --episodes-per-difficulty 256 \
+  --difficulties medium \
+  --sample-types submit_after_reference \
+  --min-scan-improvement 0.25 \
+  --output-jsonl outputs/sft/atomicvision_reference_improvement_sft.jsonl
+```
+
+For a mixed refresher dataset that keeps exact prior-copy behavior while adding
+one-reference examples:
+
+```bash
+python training/generate_atomicvision_sft_data.py \
+  --episodes-per-difficulty 256 \
+  --difficulties medium \
+  --sample-types submit_prior submit_after_reference \
+  --min-scan-improvement 0.25 \
+  --output-jsonl outputs/sft/atomicvision_mixed_copy_reference_sft.jsonl
+```
+
+Use the mixed dataset for the next SFT LoRA. Keep the first run local/no-push.
+Only after direct eval beats the current SFT-copy adapter should you run another
+variance-aware GRPO continuation.
+
 ## Hugging Face Training
 
 Use Hugging Face Jobs only when a paid Jobs-capable account/token is available.
