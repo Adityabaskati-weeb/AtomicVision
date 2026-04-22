@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="430" viewBox="0 0 920 430" role="img" aria-labelledby="title desc">
+  <title id="title">AtomicVision model improvement chart</title>
+  <desc id="desc">Bar chart comparing reward and F1 for prior-submit baseline, GRPO-only rollout, SFT-copy rollout, and cost-aware masked SFT checkpoint 40.</desc>
+  <rect width="920" height="430" fill="#ffffff"/>
+  <text x="32" y="40" fill="#172033" font-family="Arial, sans-serif" font-size="24" font-weight="700">AtomicVision Model Improvement</text>
+  <text x="32" y="68" fill="#526071" font-family="Arial, sans-serif" font-size="14">32 medium-difficulty direct rollout episodes. Higher is better.</text>
+
+  <line x1="88" y1="340" x2="868" y2="340" stroke="#d8dee8" stroke-width="1"/>
+  <line x1="88" y1="284" x2="868" y2="284" stroke="#edf1f6" stroke-width="1"/>
+  <line x1="88" y1="228" x2="868" y2="228" stroke="#edf1f6" stroke-width="1"/>
+  <line x1="88" y1="172" x2="868" y2="172" stroke="#edf1f6" stroke-width="1"/>
+  <line x1="88" y1="116" x2="868" y2="116" stroke="#edf1f6" stroke-width="1"/>
+
+  <text x="46" y="345" fill="#667085" font-family="Arial, sans-serif" font-size="12">0.0</text>
+  <text x="46" y="289" fill="#667085" font-family="Arial, sans-serif" font-size="12">1.5</text>
+  <text x="46" y="233" fill="#667085" font-family="Arial, sans-serif" font-size="12">3.0</text>
+  <text x="46" y="177" fill="#667085" font-family="Arial, sans-serif" font-size="12">4.5</text>
+  <text x="46" y="121" fill="#667085" font-family="Arial, sans-serif" font-size="12">6.0</text>
+
+  <rect x="160" y="177" width="62" height="163" rx="5" fill="#8794a8"/>
+  <text x="191" y="166" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13" font-weight="700">4.366</text>
+  <rect x="232" y="311" width="62" height="29" rx="5" fill="#9fb36a"/>
+  <text x="263" y="301" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13" font-weight="700">0.773</text>
+
+  <rect x="345" y="242" width="62" height="98" rx="5" fill="#8794a8"/>
+  <text x="376" y="231" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13" font-weight="700">2.625</text>
+  <rect x="417" y="318" width="62" height="22" rx="5" fill="#9fb36a"/>
+  <text x="448" y="308" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13" font-weight="700">0.599</text>
+
+  <rect x="530" y="174" width="62" height="166" rx="5" fill="#8794a8"/>
+  <text x="561" y="163" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13" font-weight="700">4.458</text>
+  <rect x="602" y="311" width="62" height="29" rx="5" fill="#9fb36a"/>
+  <text x="633" y="301" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13" font-weight="700">0.790</text>
+
+  <rect x="715" y="173" width="62" height="167" rx="5" fill="#2f6fed"/>
+  <text x="746" y="162" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13" font-weight="700">4.475</text>
+  <rect x="787" y="310" width="62" height="30" rx="5" fill="#22a06b"/>
+  <text x="818" y="300" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13" font-weight="700">0.791</text>
+
+  <text x="227" y="372" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13">Prior-submit</text>
+  <text x="227" y="390" text-anchor="middle" fill="#667085" font-family="Arial, sans-serif" font-size="12">baseline</text>
+  <text x="412" y="372" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13">GRPO-only</text>
+  <text x="412" y="390" text-anchor="middle" fill="#667085" font-family="Arial, sans-serif" font-size="12">rollout</text>
+  <text x="597" y="372" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13">SFT-copy</text>
+  <text x="597" y="390" text-anchor="middle" fill="#667085" font-family="Arial, sans-serif" font-size="12">rollout</text>
+  <text x="782" y="372" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="13" font-weight="700">Cost-aware</text>
+  <text x="782" y="390" text-anchor="middle" fill="#667085" font-family="Arial, sans-serif" font-size="12">masked SFT</text>
+
+  <rect x="640" y="32" width="14" height="14" rx="3" fill="#2f6fed"/>
+  <text x="662" y="44" fill="#526071" font-family="Arial, sans-serif" font-size="13">Reward</text>
+  <rect x="730" y="32" width="14" height="14" rx="3" fill="#22a06b"/>
+  <text x="752" y="44" fill="#526071" font-family="Arial, sans-serif" font-size="13">F1</text>
+  <text x="32" y="416" fill="#667085" font-family="Arial, sans-serif" font-size="12">Cost-aware checkpoint improves reward from 4.366 to 4.475 while keeping tool failures at 0%.</text>
+</svg>

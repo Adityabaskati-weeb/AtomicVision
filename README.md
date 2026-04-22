@@ -79,6 +79,10 @@ The cost-aware checkpoint outperforms the deterministic prior-submit baseline
 while preserving 0% malformed tool calls, 100% episode completion, and the same
 low scan cost.
 
+![Model improvement chart](docs/model-improvement-chart.svg)
+
+![Cost and reliability chart](docs/cost-reliability-chart.svg)
+
 The first 20-step GRPO continuation from this adapter completed successfully on
 Kaggle, but it was not promoted: with the required tool-system prompt it matched
 the prior-submit baseline (`4.366` reward, `0.773` F1) and remained below the

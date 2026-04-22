@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="360" viewBox="0 0 920 360" role="img" aria-labelledby="title desc">
+  <title id="title">AtomicVision cost and reliability chart</title>
+  <desc id="desc">Chart showing scan cost, mean steps, tool failure rate, and completion rate for the promoted cost-aware masked SFT checkpoint.</desc>
+  <rect width="920" height="360" fill="#ffffff"/>
+  <text x="32" y="40" fill="#172033" font-family="Arial, sans-serif" font-size="24" font-weight="700">Cost Discipline And Reliability</text>
+  <text x="32" y="68" fill="#526071" font-family="Arial, sans-serif" font-size="14">Promoted cost-aware checkpoint on 32 medium-difficulty episodes.</text>
+
+  <rect x="46" y="104" width="180" height="184" rx="8" fill="#f6f8fb" stroke="#d8dee8"/>
+  <text x="136" y="138" text-anchor="middle" fill="#526071" font-family="Arial, sans-serif" font-size="14">Mean scan cost</text>
+  <text x="136" y="198" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="48" font-weight="700">1.50</text>
+  <text x="136" y="230" text-anchor="middle" fill="#22a06b" font-family="Arial, sans-serif" font-size="14" font-weight="700">same as baseline</text>
+
+  <rect x="266" y="104" width="180" height="184" rx="8" fill="#f6f8fb" stroke="#d8dee8"/>
+  <text x="356" y="138" text-anchor="middle" fill="#526071" font-family="Arial, sans-serif" font-size="14">Mean steps</text>
+  <text x="356" y="198" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="48" font-weight="700">2.00</text>
+  <text x="356" y="230" text-anchor="middle" fill="#22a06b" font-family="Arial, sans-serif" font-size="14" font-weight="700">short trajectory</text>
+
+  <rect x="486" y="104" width="180" height="184" rx="8" fill="#f6f8fb" stroke="#d8dee8"/>
+  <text x="576" y="138" text-anchor="middle" fill="#526071" font-family="Arial, sans-serif" font-size="14">Tool failure rate</text>
+  <text x="576" y="198" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="48" font-weight="700">0%</text>
+  <text x="576" y="230" text-anchor="middle" fill="#22a06b" font-family="Arial, sans-serif" font-size="14" font-weight="700">valid tool calls</text>
+
+  <rect x="706" y="104" width="180" height="184" rx="8" fill="#f6f8fb" stroke="#d8dee8"/>
+  <text x="796" y="138" text-anchor="middle" fill="#526071" font-family="Arial, sans-serif" font-size="14">Done rate</text>
+  <text x="796" y="198" text-anchor="middle" fill="#172033" font-family="Arial, sans-serif" font-size="48" font-weight="700">100%</text>
+  <text x="796" y="230" text-anchor="middle" fill="#22a06b" font-family="Arial, sans-serif" font-size="14" font-weight="700">all episodes scored</text>
+
+  <line x1="78" y1="318" x2="842" y2="318" stroke="#d8dee8"/>
+  <text x="460" y="340" text-anchor="middle" fill="#667085" font-family="Arial, sans-serif" font-size="13">The promoted adapter improves reward without buying it through extra scans or unstable tool behavior.</text>
+</svg>

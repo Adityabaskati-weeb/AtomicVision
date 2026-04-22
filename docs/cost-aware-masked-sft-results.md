@@ -28,6 +28,8 @@ Training setup:
 The rollout evaluates the loaded model and LoRA by generating tool calls against
 the local AtomicVision environment. It is not a hand-coded policy.
 
+![Model improvement chart](model-improvement-chart.svg)
+
 | Model or policy | Episodes | Reward | F1 | Concentration MAE | Steps | Scan cost | Tool failure rate | Done rate |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Cost-aware masked SFT checkpoint-40 | 32 | 4.475 | 0.791 | 0.0288 | 2.00 | 1.50 | 0.00 | 1.00 |
@@ -48,6 +50,8 @@ Compared with the previous SFT-copy adapter, it slightly improves reward,
 concentration MAE, step count, and scan cost. The key behavioral gain is that
 the model keeps the cheap prior-submit policy instead of over-using reference or
 scan tools.
+
+![Cost and reliability chart](cost-reliability-chart.svg)
 
 ## Decision
 
