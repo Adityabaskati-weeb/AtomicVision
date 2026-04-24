@@ -26,11 +26,27 @@ accuracy against scan cost.
 - Public app host: [prodigyhuh-atomicvision-openenv.hf.space](https://prodigyhuh-atomicvision-openenv.hf.space)
 - Judge repro notebook: [notebooks/AtomicVision_Judge_Repro_Colab.ipynb](notebooks/AtomicVision_Judge_Repro_Colab.ipynb)
 - Open in Colab: [AtomicVision Judge Repro Colab](https://colab.research.google.com/github/Adityabaskati-weeb/-AtomicVision-An-Autonomous-AI-Agent-for-Non-Destructive-Multi-Defect-Mapping/blob/codex-reward-engineering-hardening/notebooks/AtomicVision_Judge_Repro_Colab.ipynb)
+- Training script: [training/train_sft_atomicvision_safe.py](training/train_sft_atomicvision_safe.py)
+- Writeup: [docs/judge-writeup.md](docs/judge-writeup.md)
 - Legacy GRPO bridge: [notebooks/AtomicVision_GRPO_Colab.ipynb](notebooks/AtomicVision_GRPO_Colab.ipynb)
 - Deployment notes: [docs/phase-9-huggingface-deployment.md](docs/phase-9-huggingface-deployment.md)
 - Runtime runbook: [docs/training-runtime-runbook.md](docs/training-runtime-runbook.md)
 - Submission checklist: [docs/hackathon-submission-checklist.md](docs/hackathon-submission-checklist.md)
 - Mini-blog draft: [docs/hackathon-mini-blog-draft.md](docs/hackathon-mini-blog-draft.md)
+
+## Validator Deliverables
+
+- Public Space: [prodigyhuh/atomicvision-openenv](https://huggingface.co/spaces/prodigyhuh/atomicvision-openenv)
+- OpenEnv manifest: [openenv.yaml](openenv.yaml)
+- Judge notebook: [notebooks/AtomicVision_Judge_Repro_Colab.ipynb](notebooks/AtomicVision_Judge_Repro_Colab.ipynb)
+- Runnable training script: [training/train_sft_atomicvision_safe.py](training/train_sft_atomicvision_safe.py)
+- Writeup: [docs/judge-writeup.md](docs/judge-writeup.md)
+- Loss curve image: [docs/training-loss-curve.png](docs/training-loss-curve.png)
+- Reward curve image: [docs/training-reward-curve.png](docs/training-reward-curve.png)
+
+![Training loss curve](docs/training-loss-curve.png)
+
+![Training reward curve](docs/training-reward-curve.png)
 
 The project is moving phase by phase. Each stage is implemented only after the
 previous gate has been validated.
