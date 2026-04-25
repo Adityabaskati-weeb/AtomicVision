@@ -15,6 +15,7 @@ from training.train_grpo_atomicvision import (
     parse_strict_tool_call,
     parse_last_strict_tool_call,
     parse_terminal_strict_tool_call,
+    RECOVERABLE_TAGLESS_TOOL_CALL_FORMAT_PENALTY,
     RECOVERABLE_TOOL_CALL_FORMAT_PENALTY,
     repair_tool_call,
     TRAINING_PRESETS,
@@ -170,6 +171,12 @@ def test_tool_call_format_reward_penalizes_missing_or_invalid_tool_call() -> Non
     assert _tool_call_format_reward("<tool_call>{bad json}</tool_call>") < 0.0
 
 
+def test_tool_call_format_reward_uses_stronger_penalty_for_tagless_repairable_output() -> None:
+    transcript = 'submit_defect_map\n{"defect_map":{"Zn":0.19},"confidence":0.65}'
+
+    assert _tool_call_format_reward(transcript) == -RECOVERABLE_TAGLESS_TOOL_CALL_FORMAT_PENALTY
+
+
 def test_repair_tool_call_recovers_shorthand_ask_prior() -> None:
     call = repair_tool_call("<tool_call> ask_prior")
 
@@ -177,6 +184,7 @@ def test_repair_tool_call_recovers_shorthand_ask_prior() -> None:
     assert canonicalize_tool_call_text("<tool_call> ask_prior") == (
         '<tool_call>{"name":"ask_prior","arguments":{}}</tool_call>'
     )
+    assert _tool_call_format_reward("<tool_call> ask_prior") == -RECOVERABLE_TOOL_CALL_FORMAT_PENALTY
 
 
 def test_parser_strips_empty_leading_qwen_think_wrapper() -> None:

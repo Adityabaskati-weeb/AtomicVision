@@ -33,6 +33,7 @@ DEFAULT_MODEL = "Qwen/Qwen3-0.6B"
 POST_TERMINAL_TOOL_PENALTY = 2.0
 VALID_TOOL_CALL_FORMAT_REWARD = 0.15
 RECOVERABLE_TOOL_CALL_FORMAT_PENALTY = 0.10
+RECOVERABLE_TAGLESS_TOOL_CALL_FORMAT_PENALTY = 0.25
 INVALID_TOOL_CALL_FORMAT_PENALTY = 0.75
 EXACT_PRIOR_COPY_REWARD = 0.05
 CONFIDENT_PRIOR_MIS_COPY_PENALTY = 0.25
@@ -1204,6 +1205,9 @@ def _tool_call_format_reward(text: str) -> float:
     if parse_terminal_strict_tool_call(text) is not None:
         return VALID_TOOL_CALL_FORMAT_REWARD
     if repair_tool_call(text) is not None:
+        signals = _completion_format_signals(text)
+        if signals["repaired_without_tool_tags"] > 0.0:
+            return -RECOVERABLE_TAGLESS_TOOL_CALL_FORMAT_PENALTY
         return -RECOVERABLE_TOOL_CALL_FORMAT_PENALTY
     return -INVALID_TOOL_CALL_FORMAT_PENALTY
 
@@ -1225,7 +1229,7 @@ def _normalize_completion_for_tool_parsing(text: str) -> str:
 def _completion_format_signals(text: str) -> dict[str, float]:
     stripped_text = text.strip()
     normalized_text = _normalize_completion_for_tool_parsing(text)
-    has_tool_tags = 1.0 if "<tool_call>" in stripped_text and "</tool_call>" in stripped_text else 0.0
+    has_tool_tags = 1.0 if "<tool_call>" in stripped_text or "</tool_call>" in stripped_text else 0.0
     has_assistant_prefix = 1.0 if re.match(r"^\s*(?:<\|im_start\|>assistant|assistant)\b", text) else 0.0
     strict_call = parse_terminal_strict_tool_call(text)
     repaired_call = repair_tool_call(text)
