@@ -485,6 +485,11 @@ def reward_func(environments, **kwargs) -> list[float]:
     strict_parse_values: list[float] = []
     normalized_parse_values: list[float] = []
     normalized_repair_values: list[float] = []
+    stripped_think_wrapper_values: list[float] = []
+    raw_tool_call_tag_values: list[float] = []
+    raw_assistant_prefix_values: list[float] = []
+    repaired_without_tool_tags_values: list[float] = []
+    repaired_with_tool_tags_values: list[float] = []
     ask_prior_values: list[float] = []
     submit_values: list[float] = []
     identity_rewards: list[float] = []
@@ -507,6 +512,7 @@ def reward_func(environments, **kwargs) -> list[float]:
         source_totals = reward_source_totals(getattr(env, "last_reward_breakdown", None))
         strict_call = parse_last_strict_tool_call(completion_text)
         repaired_call = repair_tool_call(completion_text)
+        format_signals = _completion_format_signals(completion_text)
         env_rewards.append(env_reward)
         format_rewards.append(format_reward)
         copy_rewards.append(copy_reward)
@@ -517,6 +523,11 @@ def reward_func(environments, **kwargs) -> list[float]:
         normalized_repair_values.append(
             1.0 if repaired_call is not None and strict_call is None else 0.0
         )
+        stripped_think_wrapper_values.append(format_signals["stripped_think_wrapper"])
+        raw_tool_call_tag_values.append(format_signals["raw_tool_call_tag"])
+        raw_assistant_prefix_values.append(format_signals["raw_assistant_prefix"])
+        repaired_without_tool_tags_values.append(format_signals["repaired_without_tool_tags"])
+        repaired_with_tool_tags_values.append(format_signals["repaired_with_tool_tags"])
         tool_name = repaired_call["name"] if repaired_call is not None else None
         ask_prior_values.append(1.0 if tool_name == "ask_prior" else 0.0)
         submit_values.append(1.0 if tool_name == "submit_defect_map" else 0.0)
@@ -541,6 +552,11 @@ def reward_func(environments, **kwargs) -> list[float]:
         strict_parse_values=strict_parse_values,
         normalized_parse_values=normalized_parse_values,
         normalized_repair_values=normalized_repair_values,
+        stripped_think_wrapper_values=stripped_think_wrapper_values,
+        raw_tool_call_tag_values=raw_tool_call_tag_values,
+        raw_assistant_prefix_values=raw_assistant_prefix_values,
+        repaired_without_tool_tags_values=repaired_without_tool_tags_values,
+        repaired_with_tool_tags_values=repaired_with_tool_tags_values,
         ask_prior_values=ask_prior_values,
         submit_values=submit_values,
         identity_rewards=identity_rewards,
@@ -962,6 +978,11 @@ def _log_reward_metrics(
     strict_parse_values: list[float],
     normalized_parse_values: list[float],
     normalized_repair_values: list[float],
+    stripped_think_wrapper_values: list[float],
+    raw_tool_call_tag_values: list[float],
+    raw_assistant_prefix_values: list[float],
+    repaired_without_tool_tags_values: list[float],
+    repaired_with_tool_tags_values: list[float],
     ask_prior_values: list[float],
     submit_values: list[float],
     identity_rewards: list[float],
@@ -987,6 +1008,17 @@ def _log_reward_metrics(
     log_metric("atomicvision/strict_tool_call_pass_rate", _safe_mean(strict_parse_values))
     log_metric("atomicvision/normalized_tool_call_pass_rate", _safe_mean(normalized_parse_values))
     log_metric("atomicvision/normalized_tool_call_repair_rate", _safe_mean(normalized_repair_values))
+    log_metric("atomicvision/stripped_think_wrapper_rate", _safe_mean(stripped_think_wrapper_values))
+    log_metric("atomicvision/raw_tool_call_tag_rate", _safe_mean(raw_tool_call_tag_values))
+    log_metric("atomicvision/raw_assistant_prefix_rate", _safe_mean(raw_assistant_prefix_values))
+    log_metric(
+        "atomicvision/repaired_without_tool_tags_rate",
+        _safe_mean(repaired_without_tool_tags_values),
+    )
+    log_metric(
+        "atomicvision/repaired_with_tool_tags_rate",
+        _safe_mean(repaired_with_tool_tags_values),
+    )
     log_metric("atomicvision/ask_prior_tool_rate", _safe_mean(ask_prior_values))
     log_metric("atomicvision/submit_tool_rate", _safe_mean(submit_values))
     log_metric("atomicvision/identity_reward_mean", _safe_mean(identity_rewards))
@@ -1188,6 +1220,23 @@ def _normalize_completion_for_tool_parsing(text: str) -> str:
     if not text:
         return text
     return _strip_leading_empty_think_wrapper(text)
+
+
+def _completion_format_signals(text: str) -> dict[str, float]:
+    stripped_text = text.strip()
+    normalized_text = _normalize_completion_for_tool_parsing(text)
+    has_tool_tags = 1.0 if "<tool_call>" in stripped_text and "</tool_call>" in stripped_text else 0.0
+    has_assistant_prefix = 1.0 if re.match(r"^\s*(?:<\|im_start\|>assistant|assistant)\b", text) else 0.0
+    strict_call = parse_terminal_strict_tool_call(text)
+    repaired_call = repair_tool_call(text)
+    repaired_only = repaired_call is not None and strict_call is None
+    return {
+        "stripped_think_wrapper": 1.0 if normalized_text != stripped_text else 0.0,
+        "raw_tool_call_tag": has_tool_tags,
+        "raw_assistant_prefix": has_assistant_prefix,
+        "repaired_without_tool_tags": 1.0 if repaired_only and not has_tool_tags else 0.0,
+        "repaired_with_tool_tags": 1.0 if repaired_only and has_tool_tags else 0.0,
+    }
 
 
 def _strip_leading_empty_think_wrapper(text: str) -> str:

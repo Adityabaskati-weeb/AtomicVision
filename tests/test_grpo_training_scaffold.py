@@ -22,6 +22,7 @@ from training.train_grpo_atomicvision import (
     TOOL_SYSTEM_PROMPT,
     _apply_preset,
     _build_training_metrics_summary,
+    _completion_format_signals,
     _env_url,
     _format_observation,
     _is_retryable_connection_error,
@@ -223,6 +224,15 @@ def test_parser_strips_empty_im_start_assistant_think_wrapper() -> None:
         },
     }
     assert _tool_call_format_reward(transcript) == VALID_TOOL_CALL_FORMAT_REWARD
+
+
+def test_completion_format_signals_distinguish_tagless_repairable_output() -> None:
+    signals = _completion_format_signals("submit_defect_map\n{\"defect_map\":{\"Zn\":0.19},\"confidence\":0.65}")
+
+    assert signals["stripped_think_wrapper"] == 0.0
+    assert signals["raw_tool_call_tag"] == 0.0
+    assert signals["repaired_without_tool_tags"] == 1.0
+    assert signals["repaired_with_tool_tags"] == 0.0
 
 
 def test_repair_tool_call_recovers_submit_from_defect_map_payload() -> None:
