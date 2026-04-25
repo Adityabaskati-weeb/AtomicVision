@@ -19,6 +19,7 @@ from training.train_grpo_atomicvision import (
     VALID_TOOL_CALL_FORMAT_REWARD,
     TOOL_SYSTEM_PROMPT,
     _apply_preset,
+    _build_training_metrics_summary,
     _env_url,
     _format_observation,
     _is_retryable_connection_error,
@@ -316,6 +317,14 @@ def test_cli_accepts_adapter_continuation_args() -> None:
             "0.001",
             "--loss-type",
             "dr_grpo",
+            "--report-to",
+            "trackio",
+            "--trackio-project",
+            "atomicvision-grpo",
+            "--trackio-space-id",
+            "prodigyhuh/atomicvision-trackio",
+            "--run-name",
+            "probe-run",
             "--prompt-focus",
             "grpo-frontier",
             "--seed-start",
@@ -334,6 +343,9 @@ def test_cli_accepts_adapter_continuation_args() -> None:
     assert args.scale_rewards == "batch"
     assert args.beta == 0.001
     assert args.loss_type == "dr_grpo"
+    assert args.trackio_project == "atomicvision-grpo"
+    assert args.trackio_space_id == "prodigyhuh/atomicvision-trackio"
+    assert args.run_name == "probe-run"
     assert args.prompt_focus == "grpo-frontier"
     assert args.seed_start == 2000
     assert args.min_reference_improvement == 1.0
@@ -346,6 +358,31 @@ def test_grpo_cli_defaults_to_official_training_band() -> None:
     args = parser.parse_args([])
 
     assert args.seed_start == GRPO_TRAIN_SEED_START
+    assert args.trackio_project == "atomicvision-grpo"
+    assert args.trackio_space_id is None
+
+
+def test_training_metrics_summary_keeps_last_numeric_values() -> None:
+    summary = _build_training_metrics_summary(
+        train_metrics={"train_runtime": 120.5, "train_loss": 0.25},
+        log_history=[
+            {"reward_std": 0.10, "atomicvision/submit_tool_rate": 0.25},
+            {"reward_std": 0.42, "atomicvision/submit_tool_rate": 0.75},
+        ],
+        run_name="atomicvision-hard-only-grpo-reference-probe",
+        difficulty="hard",
+        prompt_focus="reference-improvement",
+        seed_start=4000,
+    )
+
+    assert summary["run_name"] == "atomicvision-hard-only-grpo-reference-probe"
+    assert summary["difficulty"] == "hard"
+    assert summary["prompt_focus"] == "reference-improvement"
+    assert summary["seed_start"] == 4000
+    assert summary["train_runtime"] == 120.5
+    assert summary["train_loss"] == 0.25
+    assert summary["reward_std"] == 0.42
+    assert summary["atomicvision/submit_tool_rate"] == 0.75
 
 
 def test_tool_env_is_lazy_and_requires_reset_before_tools() -> None:

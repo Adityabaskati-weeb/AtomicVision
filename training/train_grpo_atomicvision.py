@@ -8,6 +8,7 @@ generic `step(action)` method.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import re
@@ -766,6 +767,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="dapo",
     )
     parser.add_argument("--report-to", default="trackio")
+    parser.add_argument(
+        "--trackio-project",
+        default="atomicvision-grpo",
+        help="Trackio project name when report_to includes trackio.",
+    )
+    parser.add_argument(
+        "--trackio-space-id",
+        default=None,
+        help=(
+            "Optional Hugging Face Space ID for persistent Trackio logging, "
+            "for example prodigyhuh/atomicvision-trackio."
+        ),
+    )
     parser.add_argument("--run-name", default=None)
     parser.add_argument("--use-peft", action="store_true")
     parser.add_argument(
@@ -864,36 +878,60 @@ def main() -> None:
         min_reference_improvement=args.min_reference_improvement,
         max_seed_candidates=args.max_seed_candidates,
     )
+    config_kwargs: dict[str, Any] = {
+        "output_dir": args.output_dir,
+        "log_completions": True,
+        "learning_rate": args.learning_rate,
+        "max_completion_length": args.max_completion_length,
+        "num_generations": args.num_generations,
+        "temperature": args.temperature,
+        "top_p": args.top_p,
+        "top_k": args.top_k,
+        "min_p": args.min_p,
+        "scale_rewards": args.scale_rewards,
+        "beta": args.beta,
+        "loss_type": args.loss_type,
+        "per_device_train_batch_size": args.per_device_train_batch_size,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "max_steps": args.max_steps,
+        "report_to": args.report_to,
+        "run_name": args.run_name,
+        "push_to_hub": args.push_to_hub,
+        "hub_model_id": args.hub_model_id,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    grpo_config_parameters = inspect.signature(GRPOConfig).parameters
+    if "project" in grpo_config_parameters:
+        config_kwargs["project"] = args.trackio_project
+    if args.trackio_space_id and "trackio_space_id" in grpo_config_parameters:
+        config_kwargs["trackio_space_id"] = args.trackio_space_id
     trainer = GRPOTrainer(
         model=model,
         train_dataset=dataset,
         reward_funcs=reward_func,
-        args=GRPOConfig(
-            output_dir=args.output_dir,
-            log_completions=True,
-            learning_rate=args.learning_rate,
-            max_completion_length=args.max_completion_length,
-            num_generations=args.num_generations,
-            temperature=args.temperature,
-            top_p=args.top_p,
-            top_k=args.top_k,
-            min_p=args.min_p,
-            scale_rewards=args.scale_rewards,
-            beta=args.beta,
-            loss_type=args.loss_type,
-            per_device_train_batch_size=args.per_device_train_batch_size,
-            gradient_accumulation_steps=args.gradient_accumulation_steps,
-            max_steps=args.max_steps,
-            report_to=args.report_to,
-            run_name=args.run_name,
-            push_to_hub=args.push_to_hub,
-            hub_model_id=args.hub_model_id,
-            chat_template_kwargs={"enable_thinking": False},
-        ),
+        args=GRPOConfig(**config_kwargs),
         environment_factory=AtomicVisionToolEnv,
         peft_config=peft_config,
     )
-    trainer.train()
+    train_result = trainer.train()
+    metrics_summary = _build_training_metrics_summary(
+        train_metrics=getattr(train_result, "metrics", None),
+        log_history=getattr(getattr(trainer, "state", None), "log_history", None),
+        run_name=args.run_name,
+        difficulty=args.difficulty,
+        prompt_focus=args.prompt_focus,
+        seed_start=args.seed_start,
+    )
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "grpo_train_metrics_summary.json"
+    summary_path.write_text(
+        json.dumps(metrics_summary, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    print("FINAL_TRAIN_METRICS_SUMMARY")
+    print(json.dumps(metrics_summary, sort_keys=True))
+    print(f"Metrics summary saved at: {summary_path}")
     trainer.save_model(args.output_dir)
     if args.push_to_hub:
         trainer.push_to_hub()
@@ -965,6 +1003,38 @@ def _log_reward_metrics(
 
 def _safe_mean(values: list[float]) -> float:
     return float(sum(values) / len(values)) if values else 0.0
+
+
+def _build_training_metrics_summary(
+    *,
+    train_metrics: dict[str, Any] | None,
+    log_history: list[dict[str, Any]] | None,
+    run_name: str,
+    difficulty: str,
+    prompt_focus: str,
+    seed_start: int,
+) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "run_name": run_name,
+        "difficulty": difficulty,
+        "prompt_focus": prompt_focus,
+        "seed_start": seed_start,
+    }
+    for source in (train_metrics or {}, *_iter_log_entries(log_history)):
+        for key, value in source.items():
+            if isinstance(value, bool):
+                summary[key] = value
+            elif isinstance(value, (int, float)):
+                summary[key] = float(value)
+            elif isinstance(value, str) and key.endswith(("_runtime", "_per_second")):
+                summary[key] = value
+    return summary
+
+
+def _iter_log_entries(log_history: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if not log_history:
+        return []
+    return [entry for entry in log_history if isinstance(entry, dict)]
 
 
 def _is_retryable_connection_error(exc: Exception) -> bool:
