@@ -12,8 +12,11 @@ def test_space_root_route_has_browser_landing_page() -> None:
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "AtomicVision" in response.text
-    assert "OpenEnv server running" in response.text
+    assert "AtomicVision Lab Console" in response.text
+    assert "Spectral Workbench" in response.text
+    assert "Defect Map Builder" in response.text
+    assert "/reset" in response.text
+    assert "/step" in response.text
 
 
 def test_openenv_health_route_for_space() -> None:
