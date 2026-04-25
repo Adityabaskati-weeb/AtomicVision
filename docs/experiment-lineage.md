@@ -11,6 +11,7 @@ were trying to fix, and which one is currently the best base for future work.
 | Stable fallback | [prodigyhuh/atomicvision-format-submit-merged-lora](https://huggingface.co/prodigyhuh/atomicvision-format-submit-merged-lora) | Preserved | Recovery-safe adapter with reliable two-step tool behavior |
 | Hard-frontier SFT experiment | [prodigyhuh/atomicvision-hard-frontier-boost-lora](https://huggingface.co/prodigyhuh/atomicvision-hard-frontier-boost-lora) | Not promoted | Stayed reliable but did not improve the hard slice |
 | Hard-only GRPO probe | `atomicvision-hard-only-grpo-reference-probe` | Completed, not promoted | Produced real reward variance but still failed strict submit behavior |
+| Replay-mix SFT continuation | `replay-mix-sft-continuation` | Completed, not promoted | Preserved perfect execution but did not beat the current best on held-out hard quality |
 
 ## What Each Stage Solved
 
@@ -78,6 +79,25 @@ Primary artifacts:
 
 - [hard-only-grpo-reference-probe-results.md](hard-only-grpo-reference-probe-results.md)
 - [hard-only-grpo-reference-probe-metrics.json](hard-only-grpo-reference-probe-metrics.json)
+
+### 5. Replay-mix SFT continuation
+
+Goal:
+
+- keep the strict execution recovered by earlier SFT
+- reuse the only previously helpful medium replay path
+- add a smaller hard slice without over-correcting into hard-only drift
+
+Result:
+
+- strict and normalized execution stayed perfect
+- medium stayed flat
+- hard regressed slightly on held-out evaluation
+
+Primary artifacts:
+
+- [replay-mix-sft-continuation-results.md](replay-mix-sft-continuation-results.md)
+- [replay-mix-sft-continuation-metrics.json](replay-mix-sft-continuation-metrics.json)
 
 ## Promotion Rule
 
