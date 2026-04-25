@@ -7,8 +7,8 @@ were trying to fix, and which one is currently the best base for future work.
 
 | Role | Adapter | Status | Why it matters |
 | --- | --- | --- | --- |
-| Best measured checkpoint | [`checkpoint-1` from `hard-recall-micro-repair`](hard-recall-micro-repair-results.md) | Measured winner, publication pending | First targeted continuation to improve the held-out hard slice without hurting medium or breaking execution |
-| Best published adapter | [prodigyhuh/atomicvision-medium-fidelity-boost-lora](https://huggingface.co/prodigyhuh/atomicvision-medium-fidelity-boost-lora) | Current published best | Strong, stable base that solved the medium slice and remains the parent of the measured hard-recall checkpoint |
+| Best published adapter | [prodigyhuh/atomicvision-hard-recall-micro-boost-lora](https://huggingface.co/prodigyhuh/atomicvision-hard-recall-micro-boost-lora) | Current published best | Published `checkpoint-1` winner that improves held-out hard quality while keeping medium and strict execution flat |
+| Previous best published adapter | [prodigyhuh/atomicvision-medium-fidelity-boost-lora](https://huggingface.co/prodigyhuh/atomicvision-medium-fidelity-boost-lora) | Preserved parent/base | Strong, stable base that solved the medium slice and served as the parent of the hard-recall winner |
 | Stable fallback | [prodigyhuh/atomicvision-format-submit-merged-lora](https://huggingface.co/prodigyhuh/atomicvision-format-submit-merged-lora) | Preserved | Recovery-safe adapter with reliable two-step tool behavior |
 | Hard-frontier SFT experiment | [prodigyhuh/atomicvision-hard-frontier-boost-lora](https://huggingface.co/prodigyhuh/atomicvision-hard-frontier-boost-lora) | Not promoted | Stayed reliable but did not improve the hard slice |
 | Hard-only GRPO probe | `atomicvision-hard-only-grpo-reference-probe` | Completed, not promoted | Produced real reward variance but still failed strict submit behavior |
@@ -141,10 +141,10 @@ Primary artifacts:
 
 Publication note:
 
-- the target Hub repo was created at
+- the winning checkpoint is now published at
   [prodigyhuh/atomicvision-hard-recall-micro-boost-lora](https://huggingface.co/prodigyhuh/atomicvision-hard-recall-micro-boost-lora)
-- adapter upload is still blocked by token permissions on the Hugging Face LFS
-  batch endpoint, so the measured winner is saved in-repo but not yet published
+- this is the promoted Hub materialization of `checkpoint-1` from the hard
+  recall micro-repair run
 
 ## Promotion Rule
 
@@ -156,10 +156,10 @@ An adapter is promoted only if:
 4. hard reward improves materially,
 5. medium does not regress beyond tolerance.
 
-The current published base remains:
+The current best published adapter is:
+
+- [prodigyhuh/atomicvision-hard-recall-micro-boost-lora](https://huggingface.co/prodigyhuh/atomicvision-hard-recall-micro-boost-lora)
+
+The previous best published base remains available at:
 
 - [prodigyhuh/atomicvision-medium-fidelity-boost-lora](https://huggingface.co/prodigyhuh/atomicvision-medium-fidelity-boost-lora)
-
-The best measured unpublished checkpoint from the latest targeted SFT path is:
-
-- [`checkpoint-1` from `hard-recall-micro-repair`](hard-recall-micro-repair-results.md)

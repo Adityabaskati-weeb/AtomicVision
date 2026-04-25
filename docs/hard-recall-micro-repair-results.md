@@ -78,11 +78,11 @@ That makes `checkpoint-1` the new best measured result from this training family
 - Run status: **completed**
 - Run quality: **improved**
 - Winning checkpoint: **`checkpoint-1`**
-- Publication status: **pending**
-- Target model repo:
+- Publication status: **published**
+- Published model repo:
   [prodigyhuh/atomicvision-hard-recall-micro-boost-lora](https://huggingface.co/prodigyhuh/atomicvision-hard-recall-micro-boost-lora)
-- Publish blocker: Hugging Face LFS upload returned `403 Forbidden` for the
-  current token, so the adapter could not be materialized on the Hub yet
+- Publication job:
+  [69ed48c3d2c8bd8662bce9a1](https://huggingface.co/jobs/prodigyhuh/69ed48c3d2c8bd8662bce9a1)
 
 ## Stored Artifact
 
