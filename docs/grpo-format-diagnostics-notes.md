@@ -59,3 +59,36 @@ The next meaningful strict-format intervention should target **generation behavi
 1. wrapper stripping was a correct parser hardening fix
 2. the live failure mode is mostly tagless repaired output
 3. a stronger penalty alone does not produce strict tool calls in a short GRPO continuation
+
+## V12: Tiny Format-Refresh SFT Warmup Then Same GRPO Probe
+
+- Job: [69ec8e88d70108f37acde3e5](https://huggingface.co/jobs/prodigyhuh/69ec8e88d70108f37acde3e5)
+- Commit: `7b0580ef558469f139b19968717ecbb796db74f6`
+- Metrics: [hard-only-grpo-after-format-refresh-v12-metrics.json](./hard-only-grpo-after-format-refresh-v12-metrics.json)
+
+Setup:
+
+- Added a reproducible `format_refresh` SFT profile.
+- Generated a tiny hard-only strict-envelope warmup set at `seed_start=3600`.
+- Ran a short SFT continuation from `atomicvision-medium-fidelity-boost-lora`.
+- Ran the same 4-step hard GRPO probe from the warmed-up adapter.
+
+Key result compared with V11b:
+
+- `reward`: `2.58 -> 2.90`
+- `reward_std`: `0.51 -> 1.02`
+- `done_rate`: `0.75 -> 0.78125`
+- `normalized_tool_call_pass_rate`: stayed `1.0`
+- `strict_tool_call_pass_rate`: stayed `0.0`
+- `submit_tool_rate`: `0.25 -> 0.21875`
+
+Interpretation:
+
+- The tiny SFT warmup improved the **usefulness of the GRPO signal** and the total reward.
+- It did **not** fix the strict XML-wrapped final tool-call issue yet.
+- The failure mode still looks generation-side: the model remains mostly in the repairable, non-strict regime.
+
+Practical takeaway:
+
+- The `format_refresh` SFT warmup is directionally helpful as a staging step before GRPO.
+- It is not sufficient by itself to greenlight a longer GRPO continuation.
