@@ -15,8 +15,10 @@ from training.train_grpo_atomicvision import (
     parse_strict_tool_call,
     parse_last_strict_tool_call,
     parse_terminal_strict_tool_call,
+    RECOVERABLE_FINAL_SUBMIT_FORMAT_PENALTY,
     RECOVERABLE_TOOL_CALL_FORMAT_PENALTY,
     repair_tool_call,
+    STRICT_FINAL_SUBMIT_FORMAT_REWARD,
     TRAINING_PRESETS,
     VALID_TOOL_CALL_FORMAT_REWARD,
     TOOL_SYSTEM_PROMPT,
@@ -74,6 +76,7 @@ def test_tool_system_prompt_uses_explicit_schema_examples() -> None:
     assert '"name":"ask_prior"' in TOOL_SYSTEM_PROMPT
     assert '"name":"submit_defect_map"' in TOOL_SYSTEM_PROMPT
     assert "nothing else" in TOOL_SYSTEM_PROMPT
+    assert "<think>" in TOOL_SYSTEM_PROMPT
 
 
 def test_frontier_prompt_rows_select_seed_subset_for_grpo() -> None:
@@ -139,7 +142,12 @@ def test_reward_func_adds_format_and_exact_copy_shaping() -> None:
         ],
     )
 
-    assert rewards == [2.0 + VALID_TOOL_CALL_FORMAT_REWARD + EXACT_PRIOR_COPY_REWARD]
+    assert rewards == [
+        2.0
+        + VALID_TOOL_CALL_FORMAT_REWARD
+        + EXACT_PRIOR_COPY_REWARD
+        + STRICT_FINAL_SUBMIT_FORMAT_REWARD
+    ]
 
 
 def test_prior_copy_penalty_only_applies_to_high_confidence_priors() -> None:
@@ -291,6 +299,37 @@ def test_tool_call_format_reward_uses_smaller_penalty_for_recoverable_terminal_s
     assert parse_terminal_strict_tool_call(transcript) is None
     assert repair_tool_call(transcript) is not None
     assert _tool_call_format_reward(transcript) == -RECOVERABLE_TOOL_CALL_FORMAT_PENALTY
+
+
+def test_reward_func_penalizes_recoverable_submit_when_done_but_not_strict() -> None:
+    env = AtomicVisionToolEnv()
+    env.reward = 1.75
+    env.done = True
+    env.last_submit_action = AtomicVisionAction(
+        action_type="submit_defect_map",
+        predicted_defects=["Zn"],
+        predicted_concentrations=[0.19],
+        confidence=0.65,
+    )
+
+    rewards = reward_func(
+        [env],
+        completions=[
+            "\n".join(
+                [
+                    "assistant",
+                    "submit_defect_map",
+                    '{"defect_map":{"Zn":0.19},"confidence":0.65}',
+                ]
+            )
+        ],
+    )
+
+    assert rewards == [
+        1.75
+        - RECOVERABLE_TOOL_CALL_FORMAT_PENALTY
+        - RECOVERABLE_FINAL_SUBMIT_FORMAT_PENALTY
+    ]
 
 
 def test_training_presets_keep_grpo_generation_batch_valid() -> None:
@@ -513,7 +552,11 @@ def test_observation_formatter_includes_training_signal() -> None:
             "step_count": 2,
             "max_steps": 5,
             "candidate_defects": ["B", "N"],
-            "prior_prediction": {"predicted_defects": ["B"], "confidence": 0.7},
+            "prior_prediction": {
+                "predicted_defects": ["B"],
+                "predicted_concentrations": [0.07321],
+                "confidence": 0.7,
+            },
             "reward": 3.0,
             "done": True,
             "reward_breakdown": {"f1": 0.8},
@@ -532,6 +575,9 @@ def test_observation_formatter_includes_training_signal() -> None:
     assert "scan_cost_so_far=1.500" in text
     assert "recommended_next_action=submit_defect_map_with_prior" in text
     assert "recommended_first_action=ask_prior" in text
+    assert "strict_output_rule=one_xml_tool_call_only_no_think_no_extra_text" in text
+    assert "strict_submit_template=<tool_call>" in text
+    assert '"predicted_defects":["B"]' in text
     assert "spectral_summary=" in text
     assert "current_peak_freqs" in text
     assert "reward=3.0 done=True" in text
@@ -549,7 +595,11 @@ def test_observation_formatter_marks_borderline_prior_for_variance() -> None:
             "step_count": 1,
             "max_steps": 5,
             "candidate_defects": ["B", "N"],
-            "prior_prediction": {"predicted_defects": ["B"], "confidence": 0.55},
+            "prior_prediction": {
+                "predicted_defects": ["B"],
+                "predicted_concentrations": [0.05123],
+                "confidence": 0.55,
+            },
             "reward": -0.6,
             "done": False,
             "reward_breakdown": {"scan_cost_penalty": -0.6},
@@ -561,6 +611,7 @@ def test_observation_formatter_marks_borderline_prior_for_variance() -> None:
 
     assert "recommended_next_action=copy_prior_or_one_cheap_scan_then_submit" in text
     assert "one_cheap_scan_only_when_borderline" in text
+    assert "strict_submit_rule=if_submitting_copy_template_exactly_and_stop" in text
 
 
 def test_observation_formatter_exposes_reference_delta_signal() -> None:

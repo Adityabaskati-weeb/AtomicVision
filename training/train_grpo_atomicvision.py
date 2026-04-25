@@ -34,6 +34,8 @@ POST_TERMINAL_TOOL_PENALTY = 2.0
 VALID_TOOL_CALL_FORMAT_REWARD = 0.15
 RECOVERABLE_TOOL_CALL_FORMAT_PENALTY = 0.10
 INVALID_TOOL_CALL_FORMAT_PENALTY = 0.75
+STRICT_FINAL_SUBMIT_FORMAT_REWARD = 0.25
+RECOVERABLE_FINAL_SUBMIT_FORMAT_PENALTY = 0.15
 EXACT_PRIOR_COPY_REWARD = 0.05
 CONFIDENT_PRIOR_MIS_COPY_PENALTY = 0.25
 CONFIDENT_PRIOR_COPY_THRESHOLD = 0.65
@@ -74,6 +76,8 @@ TOOL_SYSTEM_PROMPT = (
     '"predicted_concentrations":[0.12],"confidence":0.73}}</tool_call>. '
     "Do not write placeholder text or ellipsis examples inside the tool-call tags. "
     "Do not write ask_prior or submit_defect_map outside the JSON object. "
+    "Do not emit <think> tags, reasoning blocks, assistant labels, or prose before "
+    "or after the tool call. "
     "Use ask_prior first. After the prior appears, copy high-confidence priors into "
     "submit_defect_map. For borderline priors, one cheap valid scan or "
     "compare_reference call is allowed if it can improve the final map. "
@@ -97,6 +101,8 @@ DEFAULT_PROMPT = (
     "predicted_concentrations, and confidence. If confidence is 0.50-0.65, either "
     "submit the prior or request one cheap extra signal only if it can improve the "
     "final map. "
+    "When you submit, output only the final <tool_call> block with no <think> tags "
+    "and no extra text. "
     "Extra evidence is expensive: ask_prior costs 1.5, compare_reference costs "
     "0.5, quick_pdos costs 1.0, standard_pdos costs 2.0, raman_proxy costs 2.5, "
     "and high_res_pdos or zoom_band costs 4.0. Request another scan only when the "
@@ -497,19 +503,22 @@ def reward_func(environments, **kwargs) -> list[float]:
     outcome_reward_totals: list[float] = []
     penalty_totals: list[float] = []
     process_shaping_rewards: list[float] = []
+    strict_submit_rewards: list[float] = []
     rewards: list[float] = []
     for index, env in enumerate(environments):
         completion_text = completion_texts[index] if index < len(completion_texts) else ""
         env_reward = float(env.reward)
         format_reward = _tool_call_format_reward(completion_text)
         copy_reward = _prior_copy_reward(env)
+        strict_submit_reward = _strict_terminal_submit_reward(completion_text, env)
         component_values = reward_component_dict(getattr(env, "last_reward_breakdown", None))
         source_totals = reward_source_totals(getattr(env, "last_reward_breakdown", None))
-        strict_call = parse_last_strict_tool_call(completion_text)
+        strict_call = parse_terminal_strict_tool_call(completion_text)
         repaired_call = repair_tool_call(completion_text)
         env_rewards.append(env_reward)
         format_rewards.append(format_reward)
         copy_rewards.append(copy_reward)
+        strict_submit_rewards.append(strict_submit_reward)
         done_values.append(1.0 if getattr(env, "done", False) else 0.0)
         post_terminal_values.append(float(getattr(env, "post_terminal_tool_calls", 0)))
         strict_parse_values.append(1.0 if strict_call is not None else 0.0)
@@ -529,13 +538,14 @@ def reward_func(environments, **kwargs) -> list[float]:
         timeout_penalties.append(component_values["timeout_penalty"])
         outcome_reward_totals.append(source_totals["outcome_reward_total"])
         penalty_totals.append(source_totals["penalty_total"])
-        process_shaping_rewards.append(format_reward + copy_reward)
-        rewards.append(env_reward + format_reward + copy_reward)
+        process_shaping_rewards.append(format_reward + copy_reward + strict_submit_reward)
+        rewards.append(env_reward + format_reward + copy_reward + strict_submit_reward)
     _log_reward_metrics(
         kwargs,
         env_rewards=env_rewards,
         format_rewards=format_rewards,
         copy_rewards=copy_rewards,
+        strict_submit_rewards=strict_submit_rewards,
         done_values=done_values,
         post_terminal_values=post_terminal_values,
         strict_parse_values=strict_parse_values,
@@ -957,6 +967,7 @@ def _log_reward_metrics(
     env_rewards: list[float],
     format_rewards: list[float],
     copy_rewards: list[float],
+    strict_submit_rewards: list[float],
     done_values: list[float],
     post_terminal_values: list[float],
     strict_parse_values: list[float],
@@ -982,6 +993,7 @@ def _log_reward_metrics(
     log_metric("atomicvision/env_reward_mean", _safe_mean(env_rewards))
     log_metric("atomicvision/format_reward_mean", _safe_mean(format_rewards))
     log_metric("atomicvision/prior_copy_reward_mean", _safe_mean(copy_rewards))
+    log_metric("atomicvision/strict_submit_reward_mean", _safe_mean(strict_submit_rewards))
     log_metric("atomicvision/done_rate", _safe_mean(done_values))
     log_metric("atomicvision/post_terminal_tool_calls_mean", _safe_mean(post_terminal_values))
     log_metric("atomicvision/strict_tool_call_pass_rate", _safe_mean(strict_parse_values))
@@ -1077,6 +1089,28 @@ def render_tool_call_text(call: dict[str, Any]) -> str:
     return f"<tool_call>{payload}</tool_call>"
 
 
+def _strict_submit_template(prior: dict[str, Any]) -> str | None:
+    defects = prior.get("predicted_defects") or []
+    concentrations = prior.get("predicted_concentrations") or []
+    if isinstance(concentrations, dict):
+        concentrations = [concentrations.get(defect, 0.0) for defect in defects]
+    if not isinstance(defects, list) or not isinstance(concentrations, list):
+        return None
+    if not defects or len(defects) != len(concentrations):
+        return None
+    call = {
+        "name": "submit_defect_map",
+        "arguments": {
+            "predicted_defects": [str(item) for item in defects],
+            "predicted_concentrations": _rounded_floats(
+                [float(item) for item in concentrations]
+            ),
+            "confidence": round(float(prior.get("confidence") or 0.65), 5),
+        },
+    }
+    return render_tool_call_text(call)
+
+
 def _parse_all_strict_tool_calls_with_spans(text: str) -> list[tuple[dict[str, Any], int, int]]:
     """Parse every strictly valid XML-wrapped JSON tool call in a transcript."""
 
@@ -1168,6 +1202,18 @@ def _tool_call_format_reward(text: str) -> float:
     if repair_tool_call(text) is not None:
         return -RECOVERABLE_TOOL_CALL_FORMAT_PENALTY
     return -INVALID_TOOL_CALL_FORMAT_PENALTY
+
+
+def _strict_terminal_submit_reward(text: str, env: Any) -> float:
+    repaired_call = repair_tool_call(text)
+    if repaired_call is None or repaired_call.get("name") != "submit_defect_map":
+        return 0.0
+    strict_call = parse_terminal_strict_tool_call(text)
+    if strict_call is not None and strict_call.get("name") == "submit_defect_map":
+        return STRICT_FINAL_SUBMIT_FORMAT_REWARD
+    if getattr(env, "done", False):
+        return -RECOVERABLE_FINAL_SUBMIT_FORMAT_PENALTY
+    return 0.0
 
 
 def _is_valid_tool_call(call: Any) -> bool:
@@ -1375,6 +1421,7 @@ def _format_observation(observation: dict) -> str:
     scan_history = observation.get("scan_history") or []
     scan_cost_so_far = _scan_cost_from_history(scan_history)
     recommended_next_action = _recommended_next_action(prior)
+    strict_submit_template = _strict_submit_template(prior)
     spectral_summary = _spectral_summary(observation)
     if axis:
         frequency_range = f"{min(axis):.3f}-{max(axis):.3f}"
@@ -1384,6 +1431,12 @@ def _format_observation(observation: dict) -> str:
     terminal_instruction = (
         "\nterminal_instruction=stop_tool_calls_return_final_answer"
         if done
+        else ""
+    )
+    strict_submit_instruction = (
+        f"\nstrict_submit_template={strict_submit_template}"
+        "\nstrict_submit_rule=if_submitting_copy_template_exactly_and_stop"
+        if strict_submit_template is not None
         else ""
     )
     return (
@@ -1398,6 +1451,7 @@ def _format_observation(observation: dict) -> str:
         f"standard_pdos:2.0, raman_proxy:2.5, high_res_pdos_or_zoom:4.0\n"
         f"scan_cost_so_far={scan_cost_so_far:.3f}\n"
         f"cost_discipline=submit_high_confidence_prior; one_cheap_scan_only_when_borderline\n"
+        "strict_output_rule=one_xml_tool_call_only_no_think_no_extra_text\n"
         f"recommended_first_action=ask_prior\n"
         f"recommended_next_action={recommended_next_action}\n"
         f"candidate_defects={observation.get('candidate_defects')}\n"
@@ -1405,6 +1459,7 @@ def _format_observation(observation: dict) -> str:
         f"prior={prior}\n"
         f"reward={observation.get('reward')} done={observation.get('done')}\n"
         f"reward_breakdown={reward_breakdown}"
+        f"{strict_submit_instruction}"
         f"{terminal_instruction}"
     )
 
