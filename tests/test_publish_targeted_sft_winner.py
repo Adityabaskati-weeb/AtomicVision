@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from training.publish_targeted_sft_winner import build_model_card, should_publish_file
+from training.publish_targeted_sft_winner import (
+    build_model_card,
+    resolve_init_adapter_dir,
+    should_publish_file,
+)
 
 
 def test_should_publish_file_filters_training_state_artifacts() -> None:
@@ -49,3 +53,12 @@ def test_build_model_card_mentions_parent_and_eval_table() -> None:
     assert "69ed269fd70108f37acdef6d" in content
     assert "4.7148" in content
     assert "4.5065" in content
+
+
+def test_resolve_init_adapter_dir_returns_existing_local_path() -> None:
+    local_dir = Path("outputs/test_publish_targeted_sft_winner/local_adapter")
+    local_dir.mkdir(parents=True, exist_ok=True)
+
+    resolved = resolve_init_adapter_dir(str(local_dir), Path("outputs/test_publish_targeted_sft_winner"))
+
+    assert resolved == str(local_dir)

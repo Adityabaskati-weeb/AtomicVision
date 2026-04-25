@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from huggingface_hub import upload_folder
+from huggingface_hub import snapshot_download, upload_folder
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,6 +81,19 @@ def metric_value(row: dict[str, Any], *names: str, default: float = 0.0) -> floa
     return float(default)
 
 
+def resolve_init_adapter_dir(adapter_source: str, output_root: Path) -> str:
+    local_path = Path(adapter_source)
+    if local_path.exists():
+        return str(local_path)
+    snapshot_dir = output_root / "base_adapter"
+    snapshot_download(
+        repo_id=adapter_source,
+        local_dir=str(snapshot_dir),
+        token=os.environ.get("HF_TOKEN"),
+    )
+    return str(snapshot_dir)
+
+
 def should_publish_file(path: Path) -> bool:
     return path.is_file() and path.name not in EXCLUDED_CHECKPOINT_FILES
 
@@ -144,6 +157,7 @@ def main() -> None:
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
     summary_path = output_root / "summary.json"
+    resolved_init_adapter_dir = resolve_init_adapter_dir(args.init_adapter_dir, output_root)
 
     run_command(
         [
@@ -154,7 +168,7 @@ def main() -> None:
             "--model",
             args.model,
             "--init-adapter-dir",
-            args.init_adapter_dir,
+            resolved_init_adapter_dir,
             "--output-root",
             str(output_root),
             "--episodes-per-difficulty",
