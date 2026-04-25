@@ -32,6 +32,8 @@ DEFAULT_ENV_URL = "https://prodigyhuh-atomicvision-openenv.hf.space"
 DEFAULT_MODEL = "Qwen/Qwen3-0.6B"
 POST_TERMINAL_TOOL_PENALTY = 2.0
 VALID_TOOL_CALL_FORMAT_REWARD = 0.15
+RECOVERABLE_TOOL_CALL_FORMAT_PENALTY = 0.10
+RECOVERABLE_TAGLESS_TOOL_CALL_FORMAT_PENALTY = 0.25
 INVALID_TOOL_CALL_FORMAT_PENALTY = 0.75
 EXACT_PRIOR_COPY_REWARD = 0.05
 CONFIDENT_PRIOR_MIS_COPY_PENALTY = 0.25
@@ -48,6 +50,9 @@ VALID_TOOL_NAMES = (
     "zoom_band",
     "submit_defect_map",
 )
+TOOL_CALL_OPEN_TEXT = "<tool_call>"
+TOOL_CALL_JSON_PREFIX = '<tool_call>{"name":"'
+TOOL_CALL_CLOSE_TEXT = "</tool_call>"
 PROMPT_FOCI = (
     "all",
     "heldout",
@@ -484,6 +489,11 @@ def reward_func(environments, **kwargs) -> list[float]:
     strict_parse_values: list[float] = []
     normalized_parse_values: list[float] = []
     normalized_repair_values: list[float] = []
+    stripped_think_wrapper_values: list[float] = []
+    raw_tool_call_tag_values: list[float] = []
+    raw_assistant_prefix_values: list[float] = []
+    repaired_without_tool_tags_values: list[float] = []
+    repaired_with_tool_tags_values: list[float] = []
     ask_prior_values: list[float] = []
     submit_values: list[float] = []
     identity_rewards: list[float] = []
@@ -506,6 +516,7 @@ def reward_func(environments, **kwargs) -> list[float]:
         source_totals = reward_source_totals(getattr(env, "last_reward_breakdown", None))
         strict_call = parse_last_strict_tool_call(completion_text)
         repaired_call = repair_tool_call(completion_text)
+        format_signals = _completion_format_signals(completion_text)
         env_rewards.append(env_reward)
         format_rewards.append(format_reward)
         copy_rewards.append(copy_reward)
@@ -516,6 +527,11 @@ def reward_func(environments, **kwargs) -> list[float]:
         normalized_repair_values.append(
             1.0 if repaired_call is not None and strict_call is None else 0.0
         )
+        stripped_think_wrapper_values.append(format_signals["stripped_think_wrapper"])
+        raw_tool_call_tag_values.append(format_signals["raw_tool_call_tag"])
+        raw_assistant_prefix_values.append(format_signals["raw_assistant_prefix"])
+        repaired_without_tool_tags_values.append(format_signals["repaired_without_tool_tags"])
+        repaired_with_tool_tags_values.append(format_signals["repaired_with_tool_tags"])
         tool_name = repaired_call["name"] if repaired_call is not None else None
         ask_prior_values.append(1.0 if tool_name == "ask_prior" else 0.0)
         submit_values.append(1.0 if tool_name == "submit_defect_map" else 0.0)
@@ -540,6 +556,11 @@ def reward_func(environments, **kwargs) -> list[float]:
         strict_parse_values=strict_parse_values,
         normalized_parse_values=normalized_parse_values,
         normalized_repair_values=normalized_repair_values,
+        stripped_think_wrapper_values=stripped_think_wrapper_values,
+        raw_tool_call_tag_values=raw_tool_call_tag_values,
+        raw_assistant_prefix_values=raw_assistant_prefix_values,
+        repaired_without_tool_tags_values=repaired_without_tool_tags_values,
+        repaired_with_tool_tags_values=repaired_with_tool_tags_values,
         ask_prior_values=ask_prior_values,
         submit_values=submit_values,
         identity_rewards=identity_rewards,
@@ -720,6 +741,37 @@ def _profile_seed_for_grpo(seed: int, difficulty: str) -> dict[str, float]:
     }
 
 
+def _encode_generation_sequence(tokenizer: Any, text: str) -> tuple[int, ...]:
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+    return tuple(int(token_id) for token_id in token_ids)
+
+
+def _build_tool_call_sequence_biases(tokenizer: Any, bias: float) -> dict[tuple[int, ...], float]:
+    if bias <= 0:
+        return {}
+    sequence_bias: dict[tuple[int, ...], float] = {}
+    for text in (TOOL_CALL_OPEN_TEXT, TOOL_CALL_JSON_PREFIX, TOOL_CALL_CLOSE_TEXT):
+        token_ids = _encode_generation_sequence(tokenizer, text)
+        if not token_ids:
+            continue
+        for prefix_end in range(1, len(token_ids) + 1):
+            prefix = token_ids[:prefix_end]
+            sequence_bias[prefix] = max(sequence_bias.get(prefix, float("-inf")), bias)
+    return sequence_bias
+
+
+def _build_generation_kwargs(args: argparse.Namespace, tokenizer: Any | None = None) -> dict[str, Any] | None:
+    generation_kwargs: dict[str, Any] = {}
+    if args.tool_call_sequence_bias > 0:
+        if tokenizer is None:
+            raise ValueError("Tokenizer is required when tool_call_sequence_bias is enabled.")
+        sequence_bias = _build_tool_call_sequence_biases(tokenizer, args.tool_call_sequence_bias)
+        if sequence_bias:
+            generation_kwargs["sequence_bias"] = sequence_bias
+            generation_kwargs["renormalize_logits"] = True
+    return generation_kwargs or None
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build the GRPO training CLI parser."""
 
@@ -754,6 +806,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--top-k", type=int, default=50)
     parser.add_argument("--min-p", type=float, default=None)
+    parser.add_argument(
+        "--tool-call-sequence-bias",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional positive GenerationConfig.sequence_bias value applied to "
+            "the XML tool-call wrapper prefixes."
+        ),
+    )
     parser.add_argument(
         "--scale-rewards",
         choices=["group", "batch", "none"],
@@ -878,6 +939,27 @@ def main() -> None:
         min_reference_improvement=args.min_reference_improvement,
         max_seed_candidates=args.max_seed_candidates,
     )
+    generation_kwargs = None
+    if args.tool_call_sequence_bias > 0:
+        from transformers import AutoTokenizer
+
+        tokenizer = None
+        tokenizer_sources = [source for source in (args.adapter_model_id, args.model) if source]
+        for tokenizer_source in tokenizer_sources:
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(
+                    tokenizer_source,
+                    trust_remote_code=True,
+                )
+                break
+            except Exception:
+                continue
+        if tokenizer is None:
+            raise RuntimeError(
+                "Could not load a tokenizer for generation constraints from any of: "
+                + ", ".join(tokenizer_sources)
+            )
+        generation_kwargs = _build_generation_kwargs(args, tokenizer)
     config_kwargs: dict[str, Any] = {
         "output_dir": args.output_dir,
         "log_completions": True,
@@ -900,6 +982,8 @@ def main() -> None:
         "hub_model_id": args.hub_model_id,
         "chat_template_kwargs": {"enable_thinking": False},
     }
+    if generation_kwargs is not None:
+        config_kwargs["generation_kwargs"] = generation_kwargs
     grpo_config_parameters = inspect.signature(GRPOConfig).parameters
     if "project" in grpo_config_parameters:
         config_kwargs["project"] = args.trackio_project
@@ -961,6 +1045,11 @@ def _log_reward_metrics(
     strict_parse_values: list[float],
     normalized_parse_values: list[float],
     normalized_repair_values: list[float],
+    stripped_think_wrapper_values: list[float],
+    raw_tool_call_tag_values: list[float],
+    raw_assistant_prefix_values: list[float],
+    repaired_without_tool_tags_values: list[float],
+    repaired_with_tool_tags_values: list[float],
     ask_prior_values: list[float],
     submit_values: list[float],
     identity_rewards: list[float],
@@ -986,6 +1075,17 @@ def _log_reward_metrics(
     log_metric("atomicvision/strict_tool_call_pass_rate", _safe_mean(strict_parse_values))
     log_metric("atomicvision/normalized_tool_call_pass_rate", _safe_mean(normalized_parse_values))
     log_metric("atomicvision/normalized_tool_call_repair_rate", _safe_mean(normalized_repair_values))
+    log_metric("atomicvision/stripped_think_wrapper_rate", _safe_mean(stripped_think_wrapper_values))
+    log_metric("atomicvision/raw_tool_call_tag_rate", _safe_mean(raw_tool_call_tag_values))
+    log_metric("atomicvision/raw_assistant_prefix_rate", _safe_mean(raw_assistant_prefix_values))
+    log_metric(
+        "atomicvision/repaired_without_tool_tags_rate",
+        _safe_mean(repaired_without_tool_tags_values),
+    )
+    log_metric(
+        "atomicvision/repaired_with_tool_tags_rate",
+        _safe_mean(repaired_with_tool_tags_values),
+    )
     log_metric("atomicvision/ask_prior_tool_rate", _safe_mean(ask_prior_values))
     log_metric("atomicvision/submit_tool_rate", _safe_mean(submit_values))
     log_metric("atomicvision/identity_reward_mean", _safe_mean(identity_rewards))
@@ -1076,25 +1176,46 @@ def render_tool_call_text(call: dict[str, Any]) -> str:
     return f"<tool_call>{payload}</tool_call>"
 
 
-def _parse_all_strict_tool_calls(text: str) -> list[dict[str, Any]]:
+def _parse_all_strict_tool_calls_with_spans(text: str) -> list[tuple[dict[str, Any], int, int]]:
     """Parse every strictly valid XML-wrapped JSON tool call in a transcript."""
 
-    matches = re.findall(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", text, re.S)
-    calls: list[dict[str, Any]] = []
-    for match in matches:
+    text = _normalize_completion_for_tool_parsing(text)
+    calls: list[tuple[dict[str, Any], int, int]] = []
+    for match in re.finditer(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", text, re.S):
         try:
-            call = json.loads(match)
+            call = json.loads(match.group(1))
         except json.JSONDecodeError:
             return []
         if not _is_valid_tool_call(call):
             return []
-        calls.append(call)
+        calls.append((call, match.start(), match.end()))
     return calls
+
+
+def _parse_all_strict_tool_calls(text: str) -> list[dict[str, Any]]:
+    return [call for call, _, _ in _parse_all_strict_tool_calls_with_spans(text)]
+
+
+def parse_terminal_strict_tool_call(text: str) -> dict[str, Any] | None:
+    """Return the last strict tool call only when it is the terminal tool mention."""
+
+    text = _normalize_completion_for_tool_parsing(text)
+    calls = _parse_all_strict_tool_calls_with_spans(text)
+    if not calls:
+        return None
+    _, last_tool_pos = _last_tool_name(text)
+    if last_tool_pos < 0:
+        return calls[-1][0]
+    call, start, end = calls[-1]
+    if start <= last_tool_pos < end:
+        return call
+    return None
 
 
 def parse_strict_tool_call(text: str) -> dict[str, Any] | None:
     """Parse one exact XML-wrapped JSON tool call, returning None on any mismatch."""
 
+    text = _normalize_completion_for_tool_parsing(text)
     calls = _parse_all_strict_tool_calls(text)
     if len(calls) != 1:
         return None
@@ -1104,6 +1225,7 @@ def parse_strict_tool_call(text: str) -> dict[str, Any] | None:
 def parse_last_strict_tool_call(text: str) -> dict[str, Any] | None:
     """Return the last strict tool call in a multi-turn transcript, if any."""
 
+    text = _normalize_completion_for_tool_parsing(text)
     calls = _parse_all_strict_tool_calls(text)
     if not calls:
         return None
@@ -1113,26 +1235,23 @@ def parse_last_strict_tool_call(text: str) -> dict[str, Any] | None:
 def repair_tool_call(text: str) -> dict[str, Any] | None:
     """Recover a valid tool call from near-miss generations when possible."""
 
-    strict = parse_strict_tool_call(text)
-    if strict is not None:
-        return strict
-
-    terminal_strict = parse_last_strict_tool_call(text)
+    text = _normalize_completion_for_tool_parsing(text)
+    terminal_strict = parse_terminal_strict_tool_call(text)
     if terminal_strict is not None:
         return terminal_strict
 
-    tool_name = _first_tool_name(text)
+    tool_name, tool_pos = _last_tool_name(text)
     if tool_name is None:
         return None
 
     if tool_name in {"ask_prior", "compare_reference"}:
         return {"name": tool_name, "arguments": {}}
     if tool_name == "request_scan":
-        return _repair_request_scan_call(text)
+        return _repair_request_scan_call(text, start_pos=tool_pos)
     if tool_name == "zoom_band":
-        return _repair_zoom_band_call(text)
+        return _repair_zoom_band_call(text, start_pos=tool_pos)
     if tool_name == "submit_defect_map":
-        return _repair_submit_defect_map_call(text)
+        return _repair_submit_defect_map_call(text, start_pos=tool_pos)
     return None
 
 
@@ -1141,16 +1260,22 @@ def canonicalize_tool_call_text(text: str) -> str:
 
     call = repair_tool_call(text)
     if call is None:
-        return text
+        return _normalize_completion_for_tool_parsing(text)
     return render_tool_call_text(call)
 
 
 def _tool_call_format_reward(text: str) -> float:
+    text = _normalize_completion_for_tool_parsing(text)
     if not text:
         return 0.0
-    if parse_last_strict_tool_call(text) is None:
-        return -INVALID_TOOL_CALL_FORMAT_PENALTY
-    return VALID_TOOL_CALL_FORMAT_REWARD
+    if parse_terminal_strict_tool_call(text) is not None:
+        return VALID_TOOL_CALL_FORMAT_REWARD
+    if repair_tool_call(text) is not None:
+        signals = _completion_format_signals(text)
+        if signals["repaired_without_tool_tags"] > 0.0:
+            return -RECOVERABLE_TAGLESS_TOOL_CALL_FORMAT_PENALTY
+        return -RECOVERABLE_TOOL_CALL_FORMAT_PENALTY
+    return -INVALID_TOOL_CALL_FORMAT_PENALTY
 
 
 def _is_valid_tool_call(call: Any) -> bool:
@@ -1161,15 +1286,51 @@ def _is_valid_tool_call(call: Any) -> bool:
     return isinstance(name, str) and name in VALID_TOOL_NAMES and isinstance(arguments, dict)
 
 
-def _first_tool_name(text: str) -> str | None:
-    first_match = None
+def _normalize_completion_for_tool_parsing(text: str) -> str:
+    if not text:
+        return text
+    return _strip_leading_empty_think_wrapper(text)
+
+
+def _completion_format_signals(text: str) -> dict[str, float]:
+    stripped_text = text.strip()
+    normalized_text = _normalize_completion_for_tool_parsing(text)
+    has_tool_tags = 1.0 if "<tool_call>" in stripped_text or "</tool_call>" in stripped_text else 0.0
+    has_assistant_prefix = 1.0 if re.match(r"^\s*(?:<\|im_start\|>assistant|assistant)\b", text) else 0.0
+    strict_call = parse_terminal_strict_tool_call(text)
+    repaired_call = repair_tool_call(text)
+    repaired_only = repaired_call is not None and strict_call is None
+    return {
+        "stripped_think_wrapper": 1.0 if normalized_text != stripped_text else 0.0,
+        "raw_tool_call_tag": has_tool_tags,
+        "raw_assistant_prefix": has_assistant_prefix,
+        "repaired_without_tool_tags": 1.0 if repaired_only and not has_tool_tags else 0.0,
+        "repaired_with_tool_tags": 1.0 if repaired_only and has_tool_tags else 0.0,
+    }
+
+
+def _strip_leading_empty_think_wrapper(text: str) -> str:
+    pattern = re.compile(
+        r"^\s*(?:<\|im_start\|>assistant|assistant)?\s*<think>\s*</think>\s*",
+        re.S,
+    )
+    normalized = text
+    while True:
+        updated = pattern.sub("", normalized, count=1)
+        if updated == normalized:
+            return normalized.strip()
+        normalized = updated
+
+
+def _last_tool_name(text: str) -> tuple[str | None, int]:
+    last_match = None
     for tool_name in VALID_TOOL_NAMES:
-        match = re.search(rf"\b{re.escape(tool_name)}\b", text)
-        if match is None:
-            continue
-        if first_match is None or match.start() < first_match[1]:
-            first_match = (tool_name, match.start())
-    return None if first_match is None else first_match[0]
+        for match in re.finditer(rf"\b{re.escape(tool_name)}\b", text):
+            if last_match is None or match.start() > last_match[1]:
+                last_match = (tool_name, match.start())
+    if last_match is None:
+        return None, -1
+    return last_match[0], last_match[1]
 
 
 def _first_json_object(text: str, start_pos: int = 0) -> dict[str, Any] | None:
@@ -1186,8 +1347,23 @@ def _first_json_object(text: str, start_pos: int = 0) -> dict[str, Any] | None:
     return None
 
 
-def _repair_request_scan_call(text: str) -> dict[str, Any]:
-    args = _repair_arguments_object(text)
+def _last_json_object(text: str, start_pos: int = 0) -> dict[str, Any] | None:
+    decoder = json.JSONDecoder()
+    last_obj: dict[str, Any] | None = None
+    for index in range(max(0, start_pos), len(text)):
+        if text[index] != "{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            last_obj = obj
+    return last_obj
+
+
+def _repair_request_scan_call(text: str, start_pos: int = 0) -> dict[str, Any]:
+    args = _repair_arguments_object(text, start_pos=start_pos)
     return {
         "name": "request_scan",
         "arguments": {
@@ -1197,8 +1373,8 @@ def _repair_request_scan_call(text: str) -> dict[str, Any]:
     }
 
 
-def _repair_zoom_band_call(text: str) -> dict[str, Any] | None:
-    args = _repair_arguments_object(text)
+def _repair_zoom_band_call(text: str, start_pos: int = 0) -> dict[str, Any] | None:
+    args = _repair_arguments_object(text, start_pos=start_pos)
     freq_min = args.get("freq_min")
     freq_max = args.get("freq_max")
     if freq_min is None or freq_max is None:
@@ -1214,8 +1390,8 @@ def _repair_zoom_band_call(text: str) -> dict[str, Any] | None:
     }
 
 
-def _repair_submit_defect_map_call(text: str) -> dict[str, Any] | None:
-    args = _repair_arguments_object(text)
+def _repair_submit_defect_map_call(text: str, start_pos: int = 0) -> dict[str, Any] | None:
+    args = _repair_arguments_object(text, start_pos=start_pos)
     if args:
         defects = args.get("predicted_defects") or []
         concentrations = args.get("predicted_concentrations") or []
@@ -1248,8 +1424,14 @@ def _repair_submit_defect_map_call(text: str) -> dict[str, Any] | None:
     }
 
 
-def _repair_arguments_object(text: str) -> dict[str, Any]:
-    obj = _first_json_object(text)
+def _repair_arguments_object(text: str, start_pos: int = 0) -> dict[str, Any]:
+    obj = _first_json_object(text, start_pos=start_pos)
+    if obj is None:
+        obj = _last_json_object(text, start_pos=start_pos)
+    if obj is None and start_pos > 0:
+        obj = _first_json_object(text)
+    if obj is None:
+        obj = _last_json_object(text)
     if obj is None:
         return {}
     if _is_valid_tool_call(obj):

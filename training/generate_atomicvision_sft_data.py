@@ -28,6 +28,7 @@ from training.seed_ranges import SFT_TRAIN_SEED_START  # noqa: E402
 from training.train_grpo_atomicvision import (  # noqa: E402
     DEFAULT_PROMPT,
     TOOL_SYSTEM_PROMPT,
+    _select_prompt_seeds,
     _format_observation,
 )
 
@@ -45,6 +46,10 @@ FORMAT_REPAIR_SUBMIT_PRIOR_RATIO = 0.40
 FORMAT_REPAIR_REFERENCE_RATIO = 0.10
 SUBMIT_BRIDGE_SUBMIT_PRIOR_RATIO = 0.75
 SUBMIT_BRIDGE_REFERENCE_RATIO = 0.10
+FORMAT_REFRESH_SUBMIT_PRIOR_RATIO = 0.90
+FORMAT_REFRESH_REFERENCE_RATIO = 0.0
+STRICT_XML_SUBMIT_REFRESH_MIN_SCAN_IMPROVEMENT = 0.10
+STRICT_XML_SUBMIT_REFRESH_MAX_SCAN_CANDIDATES = 2048
 HARD_FRONTIER_SUBMIT_PRIOR_RATIO = 0.85
 HARD_FRONTIER_REFERENCE_RATIO = 0.10
 HARD_FRONTIER_MIN_SCAN_IMPROVEMENT = 0.15
@@ -207,6 +212,81 @@ def build_hard_frontier_boost_examples(
     )
 
 
+def build_format_refresh_examples(
+    examples_per_difficulty: int,
+    difficulties: tuple[str, ...] = ("hard",),
+    seed_start: int = 0,
+    submit_prior_ratio: float = FORMAT_REFRESH_SUBMIT_PRIOR_RATIO,
+    reference_ratio: float = FORMAT_REFRESH_REFERENCE_RATIO,
+    min_scan_improvement: float = 0.25,
+    max_scan_candidates_per_difficulty: int | None = None,
+) -> list[dict[str, Any]]:
+    """Build a tiny strict-envelope refresh set before hard-only GRPO.
+
+    This profile is intentionally dominated by exact ask_prior -> submit_defect_map
+    rows so a small continuation can refresh the XML-wrapped tool-call contract
+    without spending many updates relearning broader behavior.
+    """
+
+    return build_cost_aware_sft_examples(
+        examples_per_difficulty=examples_per_difficulty,
+        difficulties=difficulties,
+        seed_start=seed_start,
+        submit_prior_ratio=submit_prior_ratio,
+        reference_ratio=reference_ratio,
+        min_scan_improvement=min_scan_improvement,
+        max_scan_candidates_per_difficulty=max_scan_candidates_per_difficulty,
+    )
+
+
+def build_strict_xml_submit_refresh_examples(
+    examples_per_difficulty: int,
+    difficulties: tuple[str, ...] = ("hard",),
+    seed_start: int = 0,
+    min_scan_improvement: float = STRICT_XML_SUBMIT_REFRESH_MIN_SCAN_IMPROVEMENT,
+    max_scan_candidates_per_difficulty: int | None = STRICT_XML_SUBMIT_REFRESH_MAX_SCAN_CANDIDATES,
+    structured_tool_calls: bool = False,
+) -> list[dict[str, Any]]:
+    """Build a submit-only hard refresh set shaped around GRPO XML failures.
+
+    This profile intentionally mirrors the hard/reference-improvement prompt pool
+    used by the GRPO probe. Every target is the *final* wrapped
+    submit_defect_map call after ask_prior plus compare_reference, which is the
+    exact turn where the policy has been drifting into tagless repaired output.
+    """
+
+    if examples_per_difficulty <= 0:
+        raise ValueError("examples_per_difficulty must be positive")
+
+    examples: list[dict[str, Any]] = []
+    for difficulty in difficulties:
+        seeds = _select_prompt_seeds(
+            samples=examples_per_difficulty,
+            difficulty=difficulty,
+            seed_start=seed_start,
+            prompt_focus="reference-improvement",
+            min_prior_confidence=0.45,
+            max_prior_confidence=0.65,
+            min_reference_improvement=min_scan_improvement,
+            max_seed_candidates=max_scan_candidates_per_difficulty,
+        )
+        for seed in seeds:
+            example = build_scan_improvement_example(
+                seed=seed,
+                difficulty=difficulty,
+                min_scan_improvement=min_scan_improvement,
+                structured_tool_calls=structured_tool_calls,
+            )
+            if example is None:
+                raise ValueError(
+                    "Selected a reference-improvement seed that did not produce a "
+                    "submit_after_reference example. Lower the threshold or widen "
+                    "the scan search.",
+                )
+            examples.append(example)
+    return examples
+
+
 def build_episode_examples(
     seed: int,
     difficulty: str = "medium",
@@ -311,6 +391,7 @@ def build_scan_improvement_example(
     seed: int,
     difficulty: str = "medium",
     min_scan_improvement: float = 0.25,
+    structured_tool_calls: bool = False,
 ) -> dict[str, Any] | None:
     """Build one curated reference-then-submit example, or return None."""
 
@@ -368,11 +449,14 @@ def build_scan_improvement_example(
         "messages": [
             {"role": "system", "content": TOOL_SYSTEM},
             {"role": "user", "content": initial_user},
-            {"role": "assistant", "content": ask_text},
+            _assistant_tool_message(ASK_PRIOR_CALL, structured_tool_calls=structured_tool_calls),
             {"role": "user", "content": _tool_response(prior_text)},
-            {"role": "assistant", "content": reference_text},
+            _assistant_tool_message(
+                COMPARE_REFERENCE_CALL,
+                structured_tool_calls=structured_tool_calls,
+            ),
             {"role": "user", "content": _tool_response(reference_response)},
-            {"role": "assistant", "content": submit_text},
+            _assistant_tool_message(submit_call, structured_tool_calls=structured_tool_calls),
         ],
     }
 
@@ -423,6 +507,28 @@ def _tool_call_text(call: dict[str, Any]) -> str:
     return f"<tool_call>{payload}</tool_call>"
 
 
+def _assistant_tool_message(
+    call: dict[str, Any],
+    *,
+    structured_tool_calls: bool,
+) -> dict[str, Any]:
+    if not structured_tool_calls:
+        return {"role": "assistant", "content": _tool_call_text(call)}
+    return {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "type": "function",
+                "function": {
+                    "name": str(call["name"]),
+                    "arguments": dict(call["arguments"]),
+                },
+            }
+        ],
+    }
+
+
 def _user_message(observation_text: str) -> str:
     return f"{DEFAULT_PROMPT}\n\nObservation:\n{observation_text}"
 
@@ -442,6 +548,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "explicit",
             "cost_aware",
             "format_repair",
+            "format_refresh",
+            "strict_xml_submit_refresh",
             "submit_bridge",
             "two_step_curriculum",
             "hard_frontier_boost",
@@ -451,7 +559,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "explicit uses --sample-types as-is. cost_aware creates a "
             "cheap-prior-biased mix for assistant-masked SFT. "
             "format_repair creates a held-out repair mix with many more "
-            "first-step ask_prior rows. submit_bridge strengthens the "
+            "first-step ask_prior rows. format_refresh creates a tiny "
+            "submit-heavy strict-envelope refresh set before GRPO. "
+            "strict_xml_submit_refresh creates a submit-only hard/reference-"
+            "improvement refresh set that mirrors the GRPO failure pool. "
+            "submit_bridge strengthens the "
             "second-turn submit_defect_map schema. two_step_curriculum "
             "concatenates both phases into one reproducible dataset. "
             "hard_frontier_boost widens the scan-improvement search for hard "
@@ -493,6 +605,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-jsonl",
         default="outputs/sft/atomicvision_tool_copy_sft.jsonl",
+    )
+    parser.add_argument(
+        "--assistant-tool-format",
+        choices=("literal", "structured"),
+        default="literal",
+        help=(
+            "literal stores assistant tool turns as exact <tool_call> text. "
+            "structured stores assistant tool turns as HF-style tool_calls so "
+            "the chat template renders the tool envelope during training."
+        ),
     )
     return parser
 
@@ -541,6 +663,37 @@ def main() -> None:
             reference_ratio=reference_ratio,
             min_scan_improvement=args.min_scan_improvement,
             max_scan_candidates_per_difficulty=args.max_scan_candidates_per_difficulty,
+        )
+    elif args.profile == "format_refresh":
+        submit_prior_ratio = args.submit_prior_ratio
+        reference_ratio = args.reference_ratio
+        if submit_prior_ratio == COST_AWARE_SUBMIT_PRIOR_RATIO:
+            submit_prior_ratio = FORMAT_REFRESH_SUBMIT_PRIOR_RATIO
+        if reference_ratio == COST_AWARE_REFERENCE_RATIO:
+            reference_ratio = FORMAT_REFRESH_REFERENCE_RATIO
+        examples = build_format_refresh_examples(
+            examples_per_difficulty=args.episodes_per_difficulty,
+            difficulties=tuple(args.difficulties),
+            seed_start=args.seed_start,
+            submit_prior_ratio=submit_prior_ratio,
+            reference_ratio=reference_ratio,
+            min_scan_improvement=args.min_scan_improvement,
+            max_scan_candidates_per_difficulty=args.max_scan_candidates_per_difficulty,
+        )
+    elif args.profile == "strict_xml_submit_refresh":
+        min_scan_improvement = args.min_scan_improvement
+        max_scan_candidates_per_difficulty = args.max_scan_candidates_per_difficulty
+        if min_scan_improvement == 0.25:
+            min_scan_improvement = STRICT_XML_SUBMIT_REFRESH_MIN_SCAN_IMPROVEMENT
+        if max_scan_candidates_per_difficulty is None:
+            max_scan_candidates_per_difficulty = STRICT_XML_SUBMIT_REFRESH_MAX_SCAN_CANDIDATES
+        examples = build_strict_xml_submit_refresh_examples(
+            examples_per_difficulty=args.episodes_per_difficulty,
+            difficulties=tuple(args.difficulties),
+            seed_start=args.seed_start,
+            min_scan_improvement=min_scan_improvement,
+            max_scan_candidates_per_difficulty=max_scan_candidates_per_difficulty,
+            structured_tool_calls=args.assistant_tool_format == "structured",
         )
     elif args.profile == "two_step_curriculum":
         examples = build_two_step_curriculum_examples(

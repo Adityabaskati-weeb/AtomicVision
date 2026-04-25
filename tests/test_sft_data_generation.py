@@ -9,8 +9,10 @@ from pathlib import Path
 from training.generate_atomicvision_sft_data import (
     build_arg_parser,
     build_cost_aware_sft_examples,
+    build_format_refresh_examples,
     build_hard_frontier_boost_examples,
     build_sft_examples,
+    build_strict_xml_submit_refresh_examples,
 )
 from training.seed_ranges import SFT_TRAIN_SEED_START
 
@@ -155,6 +157,69 @@ def test_hard_frontier_boost_examples_use_hard_scan_search() -> None:
     assert any(example["sample_type"] == "submit_after_reference" for example in examples)
 
 
+def test_format_refresh_examples_are_submit_heavy_and_reference_free() -> None:
+    examples = build_format_refresh_examples(
+        examples_per_difficulty=20,
+        difficulties=("hard",),
+    )
+
+    counts = _counts_by_type(examples)
+
+    assert len(examples) == 20
+    assert counts == {
+        "ask_prior": 2,
+        "submit_prior": 18,
+    }
+    assert {example["difficulty"] for example in examples} == {"hard"}
+
+
+def test_strict_xml_submit_refresh_examples_focus_on_reference_submit_turns() -> None:
+    examples = build_strict_xml_submit_refresh_examples(
+        examples_per_difficulty=8,
+        difficulties=("hard",),
+        seed_start=3600,
+        max_scan_candidates_per_difficulty=512,
+    )
+
+    assert len(examples) == 8
+    assert _counts_by_type(examples) == {"submit_after_reference": 8}
+    for example in examples:
+        assistant_calls = [
+            _parse_tool_call(message["content"])
+            for message in example["messages"]
+            if message["role"] == "assistant"
+        ]
+        assert [call["name"] for call in assistant_calls] == [
+            "ask_prior",
+            "compare_reference",
+            "submit_defect_map",
+        ]
+        assert example["reward_improvement"] >= 0.10
+
+
+def test_strict_xml_submit_refresh_examples_support_structured_tool_calls() -> None:
+    examples = build_strict_xml_submit_refresh_examples(
+        examples_per_difficulty=4,
+        difficulties=("hard",),
+        seed_start=3600,
+        max_scan_candidates_per_difficulty=512,
+        structured_tool_calls=True,
+    )
+
+    assert len(examples) == 4
+    for example in examples:
+        assistant_messages = [
+            message for message in example["messages"] if message["role"] == "assistant"
+        ]
+        assert all(message.get("tool_calls") for message in assistant_messages)
+        assert all(message.get("content", "") == "" for message in assistant_messages)
+        tool_names = [
+            message["tool_calls"][0]["function"]["name"] for message in assistant_messages
+        ]
+        assert tool_names == ["ask_prior", "compare_reference", "submit_defect_map"]
+        assert example["target_tool_call"].startswith("<tool_call>")
+
+
 def test_sft_generator_cli_writes_scan_improvement_jsonl() -> None:
     output_path = Path(f"outputs/test-sft-generator/atomicvision_scan_sft_{os.getpid()}.jsonl")
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -249,6 +314,38 @@ def test_sft_generator_cli_writes_hard_frontier_boost_jsonl() -> None:
         "ask_prior": 1,
         "submit_after_reference": 1,
         "submit_prior": 8,
+    }
+    assert {row["difficulty"] for row in rows} == {"hard"}
+
+
+def test_sft_generator_cli_writes_format_refresh_jsonl() -> None:
+    output_path = Path(f"outputs/test-sft-generator/atomicvision_format_refresh_{os.getpid()}.jsonl")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "training/generate_atomicvision_sft_data.py",
+            "--profile",
+            "format_refresh",
+            "--episodes-per-difficulty",
+            "20",
+            "--difficulties",
+            "hard",
+            "--output-jsonl",
+            str(output_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    rows = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+
+    assert "Wrote 20 examples" in completed.stdout
+    assert _counts_by_type(rows) == {
+        "ask_prior": 2,
+        "submit_prior": 18,
     }
     assert {row["difficulty"] for row in rows} == {"hard"}
 

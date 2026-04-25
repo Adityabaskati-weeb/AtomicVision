@@ -44,6 +44,8 @@ accuracy against scan cost.
 
 - Public Space: [prodigyhuh/atomicvision-openenv](https://huggingface.co/spaces/prodigyhuh/atomicvision-openenv)
 - OpenEnv manifest: [openenv.yaml](openenv.yaml)
+- Installable package metadata: [pyproject.toml](pyproject.toml)
+- Reproducible dependency lock: [uv.lock](uv.lock)
 - Judge notebook: [notebooks/AtomicVision_Judge_Repro_Colab.ipynb](notebooks/AtomicVision_Judge_Repro_Colab.ipynb)
 - Runnable training script: [training/train_sft_atomicvision_safe.py](training/train_sft_atomicvision_safe.py)
 - Writeup: [docs/judge-writeup.md](docs/judge-writeup.md)
@@ -53,6 +55,156 @@ accuracy against scan cost.
 ![Training loss curve](docs/training-loss-curve.png)
 
 ![Training reward curve](docs/training-reward-curve.png)
+
+## OpenEnv Space Structure
+
+AtomicVision now matches the three-part HF Space structure shown in the OpenEnv
+submission guidance:
+
+| Component | AtomicVision artifact | How to use it |
+| --- | --- | --- |
+| Running environment endpoint | [prodigyhuh-atomicvision-openenv.hf.space](https://prodigyhuh-atomicvision-openenv.hf.space) | public app and API host |
+| Installable repository package | [pyproject.toml](pyproject.toml), [atomicvision_env](atomicvision_env) | `pip install git+https://huggingface.co/spaces/prodigyhuh/atomicvision-openenv` |
+| Docker registry image | Docker Space for [prodigyhuh/atomicvision-openenv](https://huggingface.co/spaces/prodigyhuh/atomicvision-openenv) | use the Space's `Run with Docker` button for the exact `registry.hf.space/...` command |
+
+Important endpoints exposed by the Space:
+
+- `/health` - health check
+- `/docs` - OpenAPI docs
+- `/ws` - persistent session websocket used by the OpenEnv client
+- `/reset` - stateless reset
+- `/step` - stateless step
+- `/state` - current state
+
+## Local Development
+
+Clone the Space repository and run it locally:
+
+```bash
+git clone https://huggingface.co/spaces/prodigyhuh/atomicvision-openenv
+cd atomicvision-openenv
+uv sync --frozen
+uv run server
+```
+
+The committed `uv.lock` pins the local dependency graph used by this workflow.
+
+For direct Uvicorn control:
+
+```bash
+uvicorn atomicvision_env.server.app:app --host 0.0.0.0 --port 7860 --workers 4
+```
+
+Install the client package directly from the public Space repository:
+
+```bash
+pip install git+https://huggingface.co/spaces/prodigyhuh/atomicvision-openenv
+```
+
+Use the installed client package against the hosted Space:
+
+```python
+import asyncio
+
+from atomicvision_env import AtomicVisionAction, AtomicVisionEnv
+
+
+async def main() -> None:
+    async with AtomicVisionEnv(
+        base_url="https://prodigyhuh-atomicvision-openenv.hf.space"
+    ) as client:
+        first = await client.reset()
+        second = await client.step(
+            AtomicVisionAction(action_type="ask_prior")
+        )
+        print(first)
+        print(second)
+
+
+asyncio.run(main())
+```
+
+Or use the sync wrapper against a local server:
+
+```python
+from atomicvision_env import AtomicVisionAction, AtomicVisionEnv
+
+with AtomicVisionEnv(base_url="http://localhost:7860").sync() as client:
+    result = client.step(AtomicVisionAction(action_type="ask_prior"))
+    print(result)
+```
+
+Run the Space container locally:
+
+```bash
+docker login registry.hf.space
+# Then open the Space page and use "Run with Docker" to copy the exact image name.
+```
+
+Build and run the current repo directly:
+
+```bash
+docker build -t atomicvision-openenv:latest .
+docker run -d -p 7860:7860 --name atomicvision-openenv atomicvision-openenv:latest
+```
+
+## Deploy With OpenEnv CLI
+
+Initialize a new environment from the CLI:
+
+```bash
+openenv init my_env
+cd my_env
+```
+
+Deploy AtomicVision to your namespace or to a specific Space repo:
+
+```bash
+openenv push
+openenv push --repo-id prodigyhuh/atomicvision-openenv
+```
+
+## Submission Story
+
+### Problem
+
+AtomicVision targets a capability gap that generic chat models still handle
+poorly: cost-aware scientific decision making under partial observability. The
+agent must turn compact spectral evidence into a final defect map without
+destructive measurements or unlimited scans.
+
+### Environment
+
+The environment is a real OpenEnv lab loop, not a static dataset prompt. The
+agent:
+
+- starts from a low-cost spectral observation,
+- chooses scientific tools such as `ask_prior`, `compare_reference`, or scans,
+- pays explicit budget costs for each action,
+- and is scored on defect identity, concentration quality, confidence, and
+  wasteful behavior penalties.
+
+### Results
+
+The current best published adapter is
+[prodigyhuh/atomicvision-medium-fidelity-boost-lora](https://huggingface.co/prodigyhuh/atomicvision-medium-fidelity-boost-lora).
+It improved the medium held-out slice while preserving perfect strict tool-call
+execution. The remaining gap is hard-case quality, not environment stability.
+
+### Why It Matters
+
+This project turns LLM training into a scientifically grounded professional-task
+environment: the model has to choose, spend, justify, and finish correctly
+rather than just produce plausible text. That makes it useful both as a
+hackathon submission and as a research sandbox for tool-using agents.
+
+## Interesting Artifacts
+
+- Latest GRPO probe writeup: [docs/hard-only-grpo-reference-probe-results.md](docs/hard-only-grpo-reference-probe-results.md)
+- Latest GRPO probe metrics JSON: [docs/hard-only-grpo-reference-probe-metrics.json](docs/hard-only-grpo-reference-probe-metrics.json)
+- Latest HF Jobs probe run:
+  [job 69ec694ad2c8bd8662bcd2d2](https://huggingface.co/jobs/prodigyhuh/69ec694ad2c8bd8662bcd2d2)
+- Mini-blog draft: [docs/hackathon-mini-blog-draft.md](docs/hackathon-mini-blog-draft.md)
 
 The project is moving phase by phase. Each stage is implemented only after the
 previous gate has been validated.
@@ -207,3 +359,13 @@ was not promoted. More importantly, later held-out recovery runs showed that
 tool-call formatting can still collapse even when training loss looks healthy.
 That is why verifier columns are now treated as first-class gates rather than
 optional diagnostics.
+
+The latest short HF Jobs GRPO probe now has a committed writeup and metrics
+artifact:
+
+- [docs/hard-only-grpo-reference-probe-results.md](docs/hard-only-grpo-reference-probe-results.md)
+- [docs/hard-only-grpo-reference-probe-metrics.json](docs/hard-only-grpo-reference-probe-metrics.json)
+
+That probe produced real reward variance, but it still failed the continuation
+gate because `submit_tool_rate` and `strict_tool_call_pass_rate` stayed at
+`0.0`.

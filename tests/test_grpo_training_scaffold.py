@@ -14,12 +14,18 @@ from training.train_grpo_atomicvision import (
     EXACT_PRIOR_COPY_REWARD,
     parse_strict_tool_call,
     parse_last_strict_tool_call,
+    parse_terminal_strict_tool_call,
+    RECOVERABLE_TAGLESS_TOOL_CALL_FORMAT_PENALTY,
+    RECOVERABLE_TOOL_CALL_FORMAT_PENALTY,
     repair_tool_call,
     TRAINING_PRESETS,
     VALID_TOOL_CALL_FORMAT_REWARD,
     TOOL_SYSTEM_PROMPT,
     _apply_preset,
+    _build_generation_kwargs,
+    _build_tool_call_sequence_biases,
     _build_training_metrics_summary,
+    _completion_format_signals,
     _env_url,
     _format_observation,
     _is_retryable_connection_error,
@@ -167,6 +173,46 @@ def test_tool_call_format_reward_penalizes_missing_or_invalid_tool_call() -> Non
     assert _tool_call_format_reward("<tool_call>{bad json}</tool_call>") < 0.0
 
 
+def test_tool_call_format_reward_uses_stronger_penalty_for_tagless_repairable_output() -> None:
+    transcript = 'submit_defect_map\n{"defect_map":{"Zn":0.19},"confidence":0.65}'
+
+    assert _tool_call_format_reward(transcript) == -RECOVERABLE_TAGLESS_TOOL_CALL_FORMAT_PENALTY
+
+
+def test_build_tool_call_sequence_biases_biases_wrapper_prefixes() -> None:
+    class DummyTokenizer:
+        def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+            assert add_special_tokens is False
+            return [ord(char) for char in text]
+
+    sequence_bias = _build_tool_call_sequence_biases(DummyTokenizer(), bias=2.0)
+
+    assert sequence_bias[(ord("<"),)] == 2.0
+    assert tuple(ord(char) for char in "</tool_call>") in sequence_bias
+    assert tuple(ord(char) for char in '<tool_call>{"name":"') in sequence_bias
+
+
+def test_build_generation_kwargs_adds_sequence_bias_and_renormalization() -> None:
+    class DummyTokenizer:
+        def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+            assert add_special_tokens is False
+            return [ord(char) for char in text]
+
+    args = Namespace(tool_call_sequence_bias=1.75)
+
+    generation_kwargs = _build_generation_kwargs(args, DummyTokenizer())
+
+    assert generation_kwargs is not None
+    assert generation_kwargs["renormalize_logits"] is True
+    assert generation_kwargs["sequence_bias"][tuple(ord(char) for char in "<tool_call>")] == 1.75
+
+
+def test_build_generation_kwargs_is_empty_without_sequence_bias() -> None:
+    args = Namespace(tool_call_sequence_bias=0.0)
+
+    assert _build_generation_kwargs(args) is None
+
+
 def test_repair_tool_call_recovers_shorthand_ask_prior() -> None:
     call = repair_tool_call("<tool_call> ask_prior")
 
@@ -174,6 +220,63 @@ def test_repair_tool_call_recovers_shorthand_ask_prior() -> None:
     assert canonicalize_tool_call_text("<tool_call> ask_prior") == (
         '<tool_call>{"name":"ask_prior","arguments":{}}</tool_call>'
     )
+    assert _tool_call_format_reward("<tool_call> ask_prior") == -RECOVERABLE_TOOL_CALL_FORMAT_PENALTY
+
+
+def test_parser_strips_empty_leading_qwen_think_wrapper() -> None:
+    transcript = "\n".join(
+        [
+            "assistant",
+            "<think>",
+            "",
+            "</think>",
+            "",
+            '<tool_call>{"name":"ask_prior","arguments":{}}</tool_call>',
+        ]
+    )
+
+    assert parse_strict_tool_call(transcript) == {
+        "name": "ask_prior",
+        "arguments": {},
+    }
+    assert parse_terminal_strict_tool_call(transcript) == {
+        "name": "ask_prior",
+        "arguments": {},
+    }
+    assert repair_tool_call(transcript) == {
+        "name": "ask_prior",
+        "arguments": {},
+    }
+    assert canonicalize_tool_call_text(transcript) == (
+        '<tool_call>{"name":"ask_prior","arguments":{}}</tool_call>'
+    )
+
+
+def test_parser_strips_empty_im_start_assistant_think_wrapper() -> None:
+    transcript = (
+        "<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        '<tool_call>{"name":"submit_defect_map","arguments":{"predicted_defects":["Zn"],'
+        '"predicted_concentrations":[0.19],"confidence":0.65}}</tool_call>'
+    )
+
+    assert parse_strict_tool_call(transcript) == {
+        "name": "submit_defect_map",
+        "arguments": {
+            "predicted_defects": ["Zn"],
+            "predicted_concentrations": [0.19],
+            "confidence": 0.65,
+        },
+    }
+    assert _tool_call_format_reward(transcript) == VALID_TOOL_CALL_FORMAT_REWARD
+
+
+def test_completion_format_signals_distinguish_tagless_repairable_output() -> None:
+    signals = _completion_format_signals("submit_defect_map\n{\"defect_map\":{\"Zn\":0.19},\"confidence\":0.65}")
+
+    assert signals["stripped_think_wrapper"] == 0.0
+    assert signals["raw_tool_call_tag"] == 0.0
+    assert signals["repaired_without_tool_tags"] == 1.0
+    assert signals["repaired_with_tool_tags"] == 0.0
 
 
 def test_repair_tool_call_recovers_submit_from_defect_map_payload() -> None:
@@ -188,6 +291,28 @@ def test_repair_tool_call_recovers_submit_from_defect_map_payload() -> None:
     )
 
     assert call == {
+        "name": "submit_defect_map",
+        "arguments": {
+            "predicted_defects": ["Zn", "P"],
+            "predicted_concentrations": [0.19, 0.05],
+            "confidence": 0.65,
+        },
+    }
+
+
+def test_repair_tool_call_prefers_terminal_submit_over_initial_ask_prior() -> None:
+    transcript = "\n".join(
+        [
+            '<tool_call>{"name":"ask_prior","arguments":{}}</tool_call>',
+            "user",
+            "<tool_response>reward=None done=False</tool_response>",
+            "assistant",
+            "submit_defect_map",
+            '{"defect_map":{"Zn":0.19,"P":0.05},"confidence":0.65}',
+        ]
+    )
+
+    assert repair_tool_call(transcript) == {
         "name": "submit_defect_map",
         "arguments": {
             "predicted_defects": ["Zn", "P"],
@@ -246,6 +371,27 @@ def test_tool_call_format_reward_accepts_multi_turn_strict_transcript() -> None:
     )
 
     assert _tool_call_format_reward(transcript) == VALID_TOOL_CALL_FORMAT_REWARD
+
+
+def test_tool_call_format_reward_uses_smaller_penalty_for_recoverable_terminal_submit() -> None:
+    transcript = "\n".join(
+        [
+            '<tool_call>{"name":"ask_prior","arguments":{}}</tool_call>',
+            "user",
+            "<tool_response>reward=None done=False</tool_response>",
+            "assistant",
+            "submit_defect_map",
+            '{"defect_map":{"Zn":0.19},"confidence":0.65}',
+        ]
+    )
+
+    assert parse_last_strict_tool_call(transcript) == {
+        "name": "ask_prior",
+        "arguments": {},
+    }
+    assert parse_terminal_strict_tool_call(transcript) is None
+    assert repair_tool_call(transcript) is not None
+    assert _tool_call_format_reward(transcript) == -RECOVERABLE_TOOL_CALL_FORMAT_PENALTY
 
 
 def test_training_presets_keep_grpo_generation_batch_valid() -> None:
