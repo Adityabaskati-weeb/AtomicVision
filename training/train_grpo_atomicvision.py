@@ -50,6 +50,9 @@ VALID_TOOL_NAMES = (
     "zoom_band",
     "submit_defect_map",
 )
+TOOL_CALL_OPEN_TEXT = "<tool_call>"
+TOOL_CALL_JSON_PREFIX = '<tool_call>{"name":"'
+TOOL_CALL_CLOSE_TEXT = "</tool_call>"
 PROMPT_FOCI = (
     "all",
     "heldout",
@@ -738,6 +741,37 @@ def _profile_seed_for_grpo(seed: int, difficulty: str) -> dict[str, float]:
     }
 
 
+def _encode_generation_sequence(tokenizer: Any, text: str) -> tuple[int, ...]:
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+    return tuple(int(token_id) for token_id in token_ids)
+
+
+def _build_tool_call_sequence_biases(tokenizer: Any, bias: float) -> dict[tuple[int, ...], float]:
+    if bias <= 0:
+        return {}
+    sequence_bias: dict[tuple[int, ...], float] = {}
+    for text in (TOOL_CALL_OPEN_TEXT, TOOL_CALL_JSON_PREFIX, TOOL_CALL_CLOSE_TEXT):
+        token_ids = _encode_generation_sequence(tokenizer, text)
+        if not token_ids:
+            continue
+        for prefix_end in range(1, len(token_ids) + 1):
+            prefix = token_ids[:prefix_end]
+            sequence_bias[prefix] = max(sequence_bias.get(prefix, float("-inf")), bias)
+    return sequence_bias
+
+
+def _build_generation_kwargs(args: argparse.Namespace, tokenizer: Any | None = None) -> dict[str, Any] | None:
+    generation_kwargs: dict[str, Any] = {}
+    if args.tool_call_sequence_bias > 0:
+        if tokenizer is None:
+            raise ValueError("Tokenizer is required when tool_call_sequence_bias is enabled.")
+        sequence_bias = _build_tool_call_sequence_biases(tokenizer, args.tool_call_sequence_bias)
+        if sequence_bias:
+            generation_kwargs["sequence_bias"] = sequence_bias
+            generation_kwargs["renormalize_logits"] = True
+    return generation_kwargs or None
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build the GRPO training CLI parser."""
 
@@ -772,6 +806,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--top-k", type=int, default=50)
     parser.add_argument("--min-p", type=float, default=None)
+    parser.add_argument(
+        "--tool-call-sequence-bias",
+        type=float,
+        default=0.0,
+        help=(
+            "Optional positive GenerationConfig.sequence_bias value applied to "
+            "the XML tool-call wrapper prefixes."
+        ),
+    )
     parser.add_argument(
         "--scale-rewards",
         choices=["group", "batch", "none"],
@@ -896,6 +939,27 @@ def main() -> None:
         min_reference_improvement=args.min_reference_improvement,
         max_seed_candidates=args.max_seed_candidates,
     )
+    generation_kwargs = None
+    if args.tool_call_sequence_bias > 0:
+        from transformers import AutoTokenizer
+
+        tokenizer = None
+        tokenizer_sources = [source for source in (args.adapter_model_id, args.model) if source]
+        for tokenizer_source in tokenizer_sources:
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(
+                    tokenizer_source,
+                    trust_remote_code=True,
+                )
+                break
+            except Exception:
+                continue
+        if tokenizer is None:
+            raise RuntimeError(
+                "Could not load a tokenizer for generation constraints from any of: "
+                + ", ".join(tokenizer_sources)
+            )
+        generation_kwargs = _build_generation_kwargs(args, tokenizer)
     config_kwargs: dict[str, Any] = {
         "output_dir": args.output_dir,
         "log_completions": True,
@@ -918,6 +982,8 @@ def main() -> None:
         "hub_model_id": args.hub_model_id,
         "chat_template_kwargs": {"enable_thinking": False},
     }
+    if generation_kwargs is not None:
+        config_kwargs["generation_kwargs"] = generation_kwargs
     grpo_config_parameters = inspect.signature(GRPOConfig).parameters
     if "project" in grpo_config_parameters:
         config_kwargs["project"] = args.trackio_project

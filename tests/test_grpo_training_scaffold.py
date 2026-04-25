@@ -22,6 +22,8 @@ from training.train_grpo_atomicvision import (
     VALID_TOOL_CALL_FORMAT_REWARD,
     TOOL_SYSTEM_PROMPT,
     _apply_preset,
+    _build_generation_kwargs,
+    _build_tool_call_sequence_biases,
     _build_training_metrics_summary,
     _completion_format_signals,
     _env_url,
@@ -175,6 +177,40 @@ def test_tool_call_format_reward_uses_stronger_penalty_for_tagless_repairable_ou
     transcript = 'submit_defect_map\n{"defect_map":{"Zn":0.19},"confidence":0.65}'
 
     assert _tool_call_format_reward(transcript) == -RECOVERABLE_TAGLESS_TOOL_CALL_FORMAT_PENALTY
+
+
+def test_build_tool_call_sequence_biases_biases_wrapper_prefixes() -> None:
+    class DummyTokenizer:
+        def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+            assert add_special_tokens is False
+            return [ord(char) for char in text]
+
+    sequence_bias = _build_tool_call_sequence_biases(DummyTokenizer(), bias=2.0)
+
+    assert sequence_bias[(ord("<"),)] == 2.0
+    assert tuple(ord(char) for char in "</tool_call>") in sequence_bias
+    assert tuple(ord(char) for char in '<tool_call>{"name":"') in sequence_bias
+
+
+def test_build_generation_kwargs_adds_sequence_bias_and_renormalization() -> None:
+    class DummyTokenizer:
+        def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+            assert add_special_tokens is False
+            return [ord(char) for char in text]
+
+    args = Namespace(tool_call_sequence_bias=1.75)
+
+    generation_kwargs = _build_generation_kwargs(args, DummyTokenizer())
+
+    assert generation_kwargs is not None
+    assert generation_kwargs["renormalize_logits"] is True
+    assert generation_kwargs["sequence_bias"][tuple(ord(char) for char in "<tool_call>")] == 1.75
+
+
+def test_build_generation_kwargs_is_empty_without_sequence_bias() -> None:
+    args = Namespace(tool_call_sequence_bias=0.0)
+
+    assert _build_generation_kwargs(args) is None
 
 
 def test_repair_tool_call_recovers_shorthand_ask_prior() -> None:
