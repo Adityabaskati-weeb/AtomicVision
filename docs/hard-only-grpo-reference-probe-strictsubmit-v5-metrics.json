@@ -1,0 +1,28 @@
+{
+  "job_id": "69ec79d0d2c8bd8662bcd53a",
+  "job_url": "https://huggingface.co/jobs/prodigyhuh/69ec79d0d2c8bd8662bcd53a",
+  "hardware": "a10g-large",
+  "base_adapter": "prodigyhuh/atomicvision-medium-fidelity-boost-lora",
+  "prompt_focus": "reference-improvement",
+  "difficulty": "hard",
+  "seed_band": "4000-7999",
+  "code_branch": "codex-strict-submit-contract-probe",
+  "code_commit": "8f3fbea582d8998957ad34ab86dc8d7980acfb78",
+  "final_metrics": {
+    "reward_std": 0.0,
+    "frac_reward_zero_std": 1.0,
+    "done_rate": 0.0,
+    "normalized_tool_call_pass_rate": 0.5,
+    "normalized_tool_call_repair_rate": 0.5,
+    "submit_tool_rate": 0.5,
+    "strict_tool_call_pass_rate": 0.0,
+    "strict_submit_reward_mean": 0.0,
+    "tools_failure_frequency": 0.0,
+    "format_reward_mean": -0.05000000074505806,
+    "process_shaping_reward_mean": -0.05000000074505806,
+    "total_reward_mean": -0.6500000059604645,
+    "train_loss": 3.887034305538606e-10,
+    "train_runtime_s": 77.1551
+  },
+  "verdict": "submit-rate-improved-but-probe-collapsed-before-strict-completion"
+}

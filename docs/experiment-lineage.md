@@ -11,6 +11,7 @@ were trying to fix, and which one is currently the best base for future work.
 | Stable fallback | [prodigyhuh/atomicvision-format-submit-merged-lora](https://huggingface.co/prodigyhuh/atomicvision-format-submit-merged-lora) | Preserved | Recovery-safe adapter with reliable two-step tool behavior |
 | Hard-frontier SFT experiment | [prodigyhuh/atomicvision-hard-frontier-boost-lora](https://huggingface.co/prodigyhuh/atomicvision-hard-frontier-boost-lora) | Not promoted | Stayed reliable but did not improve the hard slice |
 | Hard-only GRPO probe | `atomicvision-hard-only-grpo-reference-probe` | Completed, not promoted | Produced real reward variance but still failed strict submit behavior |
+| Strict-submit GRPO follow-up | `codex-strict-submit-contract-probe` | Completed, not promoted | Increased submit frequency, but collapsed `done_rate` and reward variance |
 
 ## What Each Stage Solved
 
@@ -78,6 +79,25 @@ Primary artifacts:
 
 - [hard-only-grpo-reference-probe-results.md](hard-only-grpo-reference-probe-results.md)
 - [hard-only-grpo-reference-probe-metrics.json](hard-only-grpo-reference-probe-metrics.json)
+
+### 5. Strict-submit GRPO follow-up
+
+Goal:
+
+- improve strict terminal `submit_defect_map` behavior
+- preserve the useful learning signal recovered by the first HF Jobs probe
+
+Result:
+
+- `submit_tool_rate` improved
+- `done_rate` collapsed to `0.00`
+- `reward_std` collapsed to `0.00`
+- still not promotion-ready
+
+Primary artifacts:
+
+- [hard-only-grpo-reference-probe-strictsubmit-v5-results.md](hard-only-grpo-reference-probe-strictsubmit-v5-results.md)
+- [hard-only-grpo-reference-probe-strictsubmit-v5-metrics.json](hard-only-grpo-reference-probe-strictsubmit-v5-metrics.json)
 
 ## Promotion Rule
 
