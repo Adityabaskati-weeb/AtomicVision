@@ -92,3 +92,36 @@ Practical takeaway:
 
 - The `format_refresh` SFT warmup is directionally helpful as a staging step before GRPO.
 - It is not sufficient by itself to greenlight a longer GRPO continuation.
+
+## V13e: Generation-Side XML Sequence Bias
+
+- Job: [69ec9546d70108f37acde439](https://huggingface.co/jobs/prodigyhuh/69ec9546d70108f37acde439)
+- Commit: `dff47640662027b9fac40f78f70a5964140da359`
+- Metrics: [hard-only-grpo-sequence-bias-v13e-metrics.json](./hard-only-grpo-sequence-bias-v13e-metrics.json)
+
+Setup:
+
+- Kept the same tiny `format_refresh` warmup recipe as V12.
+- Added an opt-in GRPO generation constraint using `GenerationConfig.sequence_bias`.
+- Biased prefixes of `<tool_call>`, `<tool_call>{"name":"`, and `</tool_call>` with a positive bias of `2.0`.
+- This follows the official Transformers guidance that multi-token sequence biasing works better when prefixes are biased too, and uses TRL's `GRPOConfig.generation_kwargs` pass-through to reach generation.
+
+Key result compared with V12:
+
+- `submit_tool_rate`: `0.21875 -> 0.25`
+- `raw_tool_call_tag_rate`: `0.21875 -> 0.25`
+- `strict_tool_call_pass_rate`: stayed `0.0`
+- `done_rate`: `0.78125 -> 0.75`
+- `reward`: `2.90 -> 2.71`
+- `reward_std`: `1.02 -> 0.45`
+
+Interpretation:
+
+- The XML sequence bias slightly improved wrapper usage and submit frequency.
+- It did **not** convert those gains into strict final tool calls.
+- It also reduced reward diversity and total reward relative to the better V12 baseline.
+
+Practical takeaway:
+
+- Generation-side sequence bias alone is **not** the missing strict-XML fix for this model/setup.
+- The best baseline remains V12: tiny `format_refresh` warmup plus the un-biased short GRPO probe.
