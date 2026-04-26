@@ -370,27 +370,33 @@ The official adapter evaluator now reports:
 This is the current reliability gate before GRPO. A model that only looks good
 on reward but fails these verifier columns is not considered ready.
 
-## Next Training Gate
+## What We Learned From GRPO
 
-The next promotion order is:
+GRPO was useful in AtomicVision as a diagnostic tool, but it was not the final
+promotion path for the submission model.
 
-1. run strict + normalized held-out eval with `training/evaluate_atomicvision_adapter.py`
-2. confirm non-zero success on held-out seeds
-3. only then run `cost-aware-variance-probe`
-4. only then run short GRPO continuation
+The earlier Kaggle continuation and later short HF Jobs probes showed something
+important: online reward variance was real, but reward alone was not enough to
+guarantee strict final tool-call behavior. In other words, a run could look
+alive in training while still failing the exact submission contract we cared
+about.
 
-The earlier 20-step GRPO continuation completed successfully on Kaggle, but it
-was not promoted. More importantly, later held-out recovery runs showed that
-tool-call formatting can still collapse even when training loss looks healthy.
-That is why verifier columns are now treated as first-class gates rather than
-optional diagnostics.
+That is why verifier columns became first-class gates in this project instead of
+optional diagnostics. We treated:
 
-The latest short HF Jobs GRPO probe now has a committed writeup and metrics
-artifact:
+- `strict_tool_call_pass_rate`
+- `normalized_tool_call_pass_rate`
+- `done_rate`
+- `tool_failure_rate`
+
+as promotion requirements, not afterthoughts.
+
+The saved GRPO artifacts are still useful for understanding that part of the
+project history:
 
 - [docs/hard-only-grpo-reference-probe-results.md](docs/hard-only-grpo-reference-probe-results.md)
 - [docs/hard-only-grpo-reference-probe-metrics.json](docs/hard-only-grpo-reference-probe-metrics.json)
 
-That probe produced real reward variance, but it still failed the continuation
-gate because `submit_tool_rate` and `strict_tool_call_pass_rate` stayed at
-`0.0`.
+But the final published model did **not** come from a GRPO promotion. The
+winning adapter came from the targeted hard-recall micro-repair continuation,
+which improved the hard slice while preserving perfect strict execution.
