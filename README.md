@@ -40,6 +40,7 @@ accuracy against scan cost.
 - Model training roadmap: [docs/model-training-generalization-roadmap.md](docs/model-training-generalization-roadmap.md)
 - Experiment lineage: [docs/experiment-lineage.md](docs/experiment-lineage.md)
 - Submission checklist: [docs/hackathon-submission-checklist.md](docs/hackathon-submission-checklist.md)
+- Blog: [blog.md](blog.md)
 - Mini-blog draft: [docs/hackathon-mini-blog-draft.md](docs/hackathon-mini-blog-draft.md)
 
 ## Validator Deliverables
