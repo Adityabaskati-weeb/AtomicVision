@@ -57,6 +57,9 @@ accuracy against scan cost.
 - Final comparison graph: [docs/final-model-comparison.png](docs/final-model-comparison.png)
 - Checkpoint sweep graph: [docs/final-checkpoint-sweep.png](docs/final-checkpoint-sweep.png)
 
+> **Note:** If you are working with training models, please ensure that
+> experiment tracking is turned on so runs, metrics, and artifacts are recorded.
+
 ![Final model comparison](docs/final-model-comparison.png)
 
 ![Checkpoint sweep](docs/final-checkpoint-sweep.png)

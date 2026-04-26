@@ -3,6 +3,9 @@
 This runbook is the operational guide for AtomicVision GRPO training across
 Colab, Kaggle, and Hugging Face runtimes.
 
+> **Note:** If you are working with training models, ensure experiment tracking
+> is turned on so runs, metrics, and artifacts are recorded and easy to verify.
+
 ## Permanent Seed Policy
 
 Use one seed split everywhere so held-out evaluation stays honest:
